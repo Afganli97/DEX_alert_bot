@@ -2,8 +2,8 @@ name: DEX Alerts Bot
 
 on:
   schedule:
-    - cron: '*/5 * * * *'  # каждые 5 минут
-  workflow_dispatch:         # ручной запуск для теста
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
 
 jobs:
   run-bot:
@@ -19,6 +19,12 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Restore prices cache
+        uses: actions/cache@v3
+        with:
+          path: prices.json
+          key: prices-cache
+
       - name: Install dependencies
         run: npm install
 
@@ -28,3 +34,9 @@ jobs:
           CHAT_ID: ${{ secrets.CHAT_ID }}
         run: node index.js
         timeout-minutes: 3
+
+      - name: Save prices cache
+        uses: actions/cache@v3
+        with:
+          path: prices.json
+          key: prices-cache
