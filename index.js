@@ -29,7 +29,7 @@ async function sendTelegram(message) {
 
 async function checkToken(token) {
   try {
-    const url = `https://api.dexscreener.com/tokens/v1/${token.chain}/${token.address}`;
+const url = `https://api.dexscreener.com/latest/dex/tokens/${token.address}`;
     const res = await fetch(url);
     const data = await res.json();
 
