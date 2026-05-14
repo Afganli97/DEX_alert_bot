@@ -143,3 +143,9 @@ checkAll();
 cron.schedule('*/5 * * * *', checkAll);
 
 console.log('🤖 DEX Alerts Bot запущен');
+
+
+// Фиктивный HTTP сервер чтобы Back4app не падал с ошибкой порта
+// Бот работает независимо от этого сервера
+const http = require('http');
+http.createServer((req, res) => res.end('OK')).listen(3000);
