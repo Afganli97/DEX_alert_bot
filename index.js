@@ -1,4 +1,12 @@
-дconst fetch = require('node-fetch');
+console.log("==================================");
+console.log("DEX BOT STARTED");
+console.log("TIME:", new Date().toISOString());
+console.log("==================================");
+
+console.log("TELEGRAM TOKEN EXISTS:", !!process.env.TELEGRAM_TOKEN);
+console.log("CHAT_ID EXISTS:", !!process.env.CHAT_ID);
+
+const fetch = require('node-fetch');
 
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const CHAT_ID = process.env.CHAT_ID;
