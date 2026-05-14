@@ -3,9 +3,6 @@ console.log("DEX BOT STARTED");
 console.log("TIME:", new Date().toISOString());
 console.log("==================================");
 
-console.log("TELEGRAM TOKEN EXISTS:", !!process.env.TELEGRAM_TOKEN);
-console.log("CHAT_ID EXISTS:", !!process.env.CHAT_ID);
-
 const fetch = require('node-fetch');
 const fs = require('fs');
 
@@ -16,11 +13,12 @@ const tokens = require('./tokens');
 
 async function sendTelegram(message) {
 
-  const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
+  const url =
+    `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
 
   try {
 
-    console.log("Sending Telegram message...");
+    console.log("Sending Telegram alert...");
 
     const response = await fetch(url, {
       method: 'POST',
@@ -39,21 +37,19 @@ async function sendTelegram(message) {
 
     if (!data.ok) {
 
-      console.error("Telegram API ERROR:");
+      console.error("Telegram API error:");
       console.error(JSON.stringify(data, null, 2));
 
     } else {
 
-      console.log("Telegram message sent");
+      console.log("Telegram alert sent");
 
     }
 
   } catch (err) {
 
-    console.error("==================================");
     console.error("TELEGRAM ERROR");
     console.error(err);
-    console.error("==================================");
 
   }
 }
@@ -63,7 +59,7 @@ async function checkToken(token) {
   try {
 
     console.log("----------------------------------");
-    console.log(`Checking token: ${token.name}`);
+    console.log(`Checking ${token.name}`);
 
     const url =
       `https://api.dexscreener.com/latest/dex/tokens/${token.address}`;
@@ -78,7 +74,7 @@ async function checkToken(token) {
 
     if (!pairs || pairs.length === 0) {
 
-      console.log(`${token.name}: no pairs found`);
+      console.log(`${token.name}: no pairs`);
 
       return null;
     }
@@ -90,7 +86,7 @@ async function checkToken(token) {
 
     const price = parseFloat(pair.priceUsd || 0);
 
-    if (price === 0) {
+    if (!price || price <= 0) {
 
       console.log(`${token.name}: invalid price`);
 
@@ -100,7 +96,7 @@ async function checkToken(token) {
     const symbol =
       pair.baseToken?.symbol || token.name;
 
-    console.log(`[OK] ${symbol}: $${price}`);
+    console.log(`${symbol}: $${price}`);
 
     return {
       token,
@@ -111,10 +107,8 @@ async function checkToken(token) {
 
   } catch (err) {
 
-    console.error("==================================");
-    console.error(`TOKEN CHECK ERROR: ${token.name}`);
+    console.error(`TOKEN ERROR: ${token.name}`);
     console.error(err);
-    console.error("==================================");
 
     return null;
   }
@@ -140,46 +134,42 @@ async function main() {
     console.log("");
     console.log("==================================");
     console.log("NEW CHECK CYCLE");
-    console.log("TIME:", new Date().toISOString());
+    console.log(new Date().toISOString());
     console.log("==================================");
 
     if (!TELEGRAM_TOKEN) {
-      throw new Error("TELEGRAM_TOKEN is missing");
+      throw new Error("Missing TELEGRAM_TOKEN");
     }
 
     if (!CHAT_ID) {
-      throw new Error("CHAT_ID is missing");
+      throw new Error("Missing CHAT_ID");
     }
 
-    console.log(`Checking ${tokens.length} tokens`);
-
-    let prevPrices = {};
+    let alertPrices = {};
 
     try {
 
       if (fs.existsSync('prices.json')) {
 
-        prevPrices = JSON.parse(
+        alertPrices = JSON.parse(
           fs.readFileSync('prices.json', 'utf8')
         );
 
-        console.log("Previous prices loaded");
+        console.log("Loaded alert anchor prices");
 
       } else {
 
         console.log("prices.json not found");
-        console.log("First launch");
+        console.log("Creating first baseline");
 
       }
 
     } catch (err) {
 
-      console.error("Failed loading prices.json");
+      console.error("prices.json load error");
       console.error(err);
 
     }
-
-    const currentPrices = {};
 
     for (const token of tokens) {
 
@@ -190,9 +180,6 @@ async function main() {
       );
 
       if (!result) {
-
-        console.log(`Skipping ${token.name}`);
-
         continue;
       }
 
@@ -204,80 +191,46 @@ async function main() {
 
       const key = token.address;
 
-      const alerts = [];
+      // ПЕРВЫЙ ЗАПУСК
+      if (alertPrices[key] === undefined) {
 
-      if (
-        token.alertAbove !== null &&
-        price > token.alertAbove
-      ) {
-
-        alerts.push(
-          `🟢 Цена выше $${token.alertAbove}`
-        );
-      }
-
-      if (
-        token.alertBelow !== null &&
-        price < token.alertBelow
-      ) {
-
-        alerts.push(
-          `🔴 Цена ниже $${token.alertBelow}`
-        );
-      }
-
-      if (
-        token.changeAlert !== null &&
-        prevPrices[key] !== undefined
-      ) {
-
-        const prev = prevPrices[key];
-
-        const changePct =
-          ((price - prev) / prev) * 100;
+        alertPrices[key] = price;
 
         console.log(
-          `${symbol} change: ${changePct.toFixed(2)}%`
+          `${symbol}: baseline saved at $${price}`
         );
 
-        if (
-          Math.abs(changePct) >= token.changeAlert
-        ) {
-
-          const dir =
-            changePct > 0 ? '📈' : '📉';
-
-          const sign =
-            changePct > 0 ? '+' : '';
-
-          alerts.push(
-            `${dir} Изменение: *${sign}${changePct.toFixed(2)}%*`
-          );
-
-          alerts.push(
-            `Было: $${formatPrice(prev)}`
-          );
-
-          alerts.push(
-            `Стало: $${formatPrice(price)}`
-          );
-        }
+        continue;
       }
 
-      currentPrices[key] = price;
+      const anchorPrice =
+        alertPrices[key];
 
-      if (alerts.length > 0) {
+      const changePct =
+        ((price - anchorPrice) / anchorPrice) * 100;
 
-        console.log(`ALERT: ${symbol}`);
+      console.log(
+        `${symbol}: ${changePct.toFixed(2)}% from last alert`
+      );
 
-        const change24h =
-          parseFloat(pair.priceChange?.h24 || 0);
+      if (
+        Math.abs(changePct) >= token.changeAlert
+      ) {
+
+        const direction =
+          changePct > 0 ? '📈' : '📉';
+
+        const sign =
+          changePct > 0 ? '+' : '';
 
         const volume24h =
           pair.volume?.h24 || 0;
 
         const liquidity =
           pair.liquidity?.usd || 0;
+
+        const change24h =
+          parseFloat(pair.priceChange?.h24 || 0);
 
         const dexUrl =
           pair.url || '';
@@ -287,8 +240,9 @@ async function main() {
 
         const message =
           `⚠️ *${symbol}* (${chain})\n\n` +
-          alerts.join('\n') + '\n\n' +
-          `💰 Цена: *$${formatPrice(price)}*\n` +
+          `${direction} Изменение: *${sign}${changePct.toFixed(2)}%*\n\n` +
+          `📍 Последний alert-price: $${formatPrice(anchorPrice)}\n` +
+          `💰 Текущая цена: $${formatPrice(price)}\n\n` +
           `📊 Объём 24ч: $${Math.round(volume24h).toLocaleString()}\n` +
           `💧 Ликвидность: $${Math.round(liquidity).toLocaleString()}\n` +
           `📉 24ч: ${change24h.toFixed(2)}%\n` +
@@ -296,27 +250,26 @@ async function main() {
 
         await sendTelegram(message);
 
-      } else {
+        // ОБНОВЛЯЕМ ЯКОРЬ ТОЛЬКО ПОСЛЕ ALERT
+        alertPrices[key] = price;
 
-        console.log(`No alerts for ${symbol}`);
-
+        console.log(
+          `${symbol}: alert anchor updated`
+        );
       }
     }
 
     fs.writeFileSync(
       'prices.json',
-      JSON.stringify(currentPrices, null, 2)
+      JSON.stringify(alertPrices, null, 2)
     );
 
     console.log("prices.json updated");
 
   } catch (err) {
 
-    console.error("");
-    console.error("==================================");
     console.error("FATAL ERROR");
     console.error(err);
-    console.error("==================================");
 
     try {
 
@@ -326,9 +279,7 @@ async function main() {
 
     } catch (e) {
 
-      console.error(
-        "Failed sending Telegram error"
-      );
+      console.error("Telegram error send failed");
 
     }
   }
@@ -338,7 +289,7 @@ async function startBot() {
 
   console.log("");
   console.log("==================================");
-  console.log("DEX BOT 24/7 MODE STARTED");
+  console.log("DEX BOT 24/7 MODE");
   console.log("==================================");
 
   while (true) {
@@ -352,7 +303,6 @@ async function startBot() {
 
     } catch (err) {
 
-      console.error("");
       console.error("CYCLE ERROR");
       console.error(err);
 
