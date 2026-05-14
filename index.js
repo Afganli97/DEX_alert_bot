@@ -347,4 +347,42 @@ async function main() {
   }
 }
 
-main();
+async function startBot() {
+
+  console.log("==================================");
+  console.log("DEX BOT 24/7 MODE STARTED");
+  console.log("==================================");
+
+  while (true) {
+
+    try {
+
+      console.log("");
+      console.log("==================================");
+      console.log("NEW CHECK CYCLE");
+      console.log("TIME:", new Date().toISOString());
+      console.log("==================================");
+
+      await main();
+
+      console.log("");
+      console.log("Cycle completed successfully");
+
+    } catch (err) {
+
+      console.error("");
+      console.error("CYCLE ERROR:");
+      console.error(err);
+
+    }
+
+    console.log("");
+    console.log("Waiting 60 seconds before next cycle...");
+
+    await new Promise(resolve =>
+      setTimeout(resolve, 60000)
+    );
+  }
+}
+
+startBot();
