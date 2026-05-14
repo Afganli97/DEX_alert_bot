@@ -1,13 +1,8 @@
 const fetch = require('node-fetch');
-const cron = require('node-cron');
 
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const CHAT_ID = process.env.CHAT_ID;
 const tokens = require('./tokens');
-
-// Здесь бот хранит последнюю известную цену каждого токена
-// Сравнивает с ней при следующей проверке через 5 минут
-const lastPrices = {};
 
 async function sendTelegram(message) {
   const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
@@ -23,129 +18,122 @@ async function sendTelegram(message) {
       })
     });
   } catch (err) {
-    console.error('Ошибка отправки в Telegram:', err.message);
+    console.error('Ошибка Telegram:', err.message);
   }
 }
 
 async function checkToken(token) {
   try {
-const url = `https://api.dexscreener.com/latest/dex/tokens/${token.address}`;
+    const url = `https://api.dexscreener.com/latest/dex/tokens/${token.address}`;
     const res = await fetch(url);
     const data = await res.json();
 
-    if (!data || !Array.isArray(data) || data.length === 0) {
+    const pairs = data?.pairs;
+    if (!pairs || pairs.length === 0) {
       console.log(`${token.name}: данные не получены`);
-      return;
+      return null;
     }
 
-    // Берём пару с максимальной ликвидностью среди всех пулов этого токена
-    const pair = data.sort((a, b) =>
+    const pair = pairs.sort((a, b) =>
       (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0)
     )[0];
 
     const price = parseFloat(pair.priceUsd || 0);
-    if (price === 0) return;
+    if (price === 0) return null;
 
-    const change24h = parseFloat(pair.priceChange?.h24 || 0);
-    const volume24h = pair.volume?.h24 || 0;
-    const liquidity = pair.liquidity?.usd || 0;
-    const dexUrl = pair.url || '';
     const symbol = pair.baseToken?.symbol || token.name;
+    console.log(`[OK] ${symbol}: $${price}`);
 
-    const key = token.address;
-    const alerts = [];
-
-    // --- АЛЕРТ 1: ЦЕНА ВЫШЕ ПОРОГА ---
-    // Срабатывает каждый раз когда цена выше alertAbove при проверке
-    // Чтобы выключить — поставь null в tokens.js
-    if (token.alertAbove !== null && price > token.alertAbove) {
-      alerts.push(`🟢 Цена *выше* порога $${token.alertAbove}`);
-    }
-
-    // --- АЛЕРТ 2: ЦЕНА НИЖЕ ПОРОГА ---
-    // Срабатывает каждый раз когда цена ниже alertBelow при проверке
-    if (token.alertBelow !== null && price < token.alertBelow) {
-      alerts.push(`🔴 Цена *ниже* порога $${token.alertBelow}`);
-    }
-
-    // --- АЛЕРТ 3: ИЗМЕНЕНИЕ ЦЕНЫ МЕЖДУ ПРОВЕРКАМИ ---
-    // Сравниваем текущую цену с той что была на предыдущей проверке (5 минут назад)
-    // Если изменение >= changeAlert процентов — отправляем алерт
-    // Алерт придёт КАЖДЫЙ раз когда за интервал проверки цена изменится на нужный %
-    // Пример: цена была $1.00, стала $1.11 → изменение 11% → алерт если changeAlert = 10
-    if (token.changeAlert !== null && lastPrices[key] !== undefined) {
-      const prevPrice = lastPrices[key];
-      const changePct = ((price - prevPrice) / prevPrice) * 100;
-
-      if (Math.abs(changePct) >= token.changeAlert) {
-        const dir = changePct > 0 ? '📈' : '📉';
-        const sign = changePct > 0 ? '+' : '';
-        alerts.push(`${dir} Изменение с последней проверки: *${sign}${changePct.toFixed(2)}%*`);
-        // Показываем от какой цены считалось
-        alerts.push(`   Было: $${formatPrice(prevPrice)} → Стало: $${formatPrice(price)}`);
-      }
-    }
-
-    // Записываем текущую цену — она станет "предыдущей" на следующей проверке
-    lastPrices[key] = price;
-
-    // Если есть хоть один алерт — отправляем сообщение в Telegram
-    if (alerts.length > 0) {
-      const message =
-        `⚠️ *${symbol}* (${token.chain.toUpperCase()})\n\n` +
-        alerts.join('\n') + '\n\n' +
-        `💰 Цена сейчас: *$${formatPrice(price)}*\n` +
-        `📊 Объём 24ч: $${Math.round(volume24h).toLocaleString()}\n` +
-        `💧 Ликвидность: $${Math.round(liquidity).toLocaleString()}\n` +
-        `📉 Изменение 24ч: ${change24h.toFixed(2)}%\n` +
-        `🔗 [Открыть на DexScreener](${dexUrl})`;
-
-      await sendTelegram(message);
-      console.log(`[АЛЕРТ] ${symbol}: $${formatPrice(price)}`);
-    } else {
-      console.log(`[OK] ${symbol}: $${formatPrice(price)}`);
-    }
+    return { token, price, pair, symbol };
 
   } catch (err) {
-    console.error(`Ошибка для ${token.name}:`, err.message);
+    console.error(`Ошибка ${token.name}:`, err.message);
+    return null;
   }
 }
 
-// Вспомогательная функция: форматирует цену красиво
-// Маленькие числа типа 0.0000043 показывает в научной нотации
 function formatPrice(price) {
   if (price < 0.0001) return price.toExponential(3);
   if (price < 1) return price.toPrecision(4);
   return price.toFixed(4);
 }
 
-async function checkAll() {
-  console.log(`\n[${new Date().toISOString()}] Проверяю ${tokens.length} токенов...`);
-  for (const token of tokens) {
-    await checkToken(token);
-    // Пауза 1 секунда между токенами чтобы не перегружать API
-    await new Promise(r => setTimeout(r, 1000));
+async function main() {
+  console.log(`Проверяю ${tokens.length} токенов...`);
+
+  // Получаем предыдущие цены из переменной окружения (передаётся между запусками через артефакт)
+  let prevPrices = {};
+  try {
+    const fs = require('fs');
+    if (fs.existsSync('prices.json')) {
+      prevPrices = JSON.parse(fs.readFileSync('prices.json', 'utf8'));
+      console.log('Загружены предыдущие цены');
+    }
+  } catch (e) {
+    console.log('Файл цен не найден, первый запуск');
   }
+
+  const currentPrices = {};
+
+  for (const token of tokens) {
+    const result = await checkToken(token);
+    await new Promise(r => setTimeout(r, 800));
+
+    if (!result) continue;
+
+    const { price, pair, symbol } = result;
+    const key = token.address;
+    const alerts = [];
+
+    // Алерт: цена выше порога
+    if (token.alertAbove !== null && price > token.alertAbove) {
+      alerts.push(`🟢 Цена *выше* порога $${token.alertAbove}`);
+    }
+
+    // Алерт: цена ниже порога
+    if (token.alertBelow !== null && price < token.alertBelow) {
+      alerts.push(`🔴 Цена *ниже* порога $${token.alertBelow}`);
+    }
+
+    // Алерт: изменение между запусками
+    if (token.changeAlert !== null && prevPrices[key] !== undefined) {
+      const prev = prevPrices[key];
+      const changePct = ((price - prev) / prev) * 100;
+      if (Math.abs(changePct) >= token.changeAlert) {
+        const dir = changePct > 0 ? '📈' : '📉';
+        const sign = changePct > 0 ? '+' : '';
+        alerts.push(`${dir} Изменение: *${sign}${changePct.toFixed(2)}%*`);
+        alerts.push(`   Было: $${formatPrice(prev)} → Стало: $${formatPrice(price)}`);
+      }
+    }
+
+    currentPrices[key] = price;
+
+    if (alerts.length > 0) {
+      const change24h = parseFloat(pair.priceChange?.h24 || 0);
+      const volume24h = pair.volume?.h24 || 0;
+      const liquidity = pair.liquidity?.usd || 0;
+      const dexUrl = pair.url || '';
+      const chain = token.chain.toUpperCase();
+
+      const message =
+        `⚠️ *${symbol}* (${chain})\n\n` +
+        alerts.join('\n') + '\n\n' +
+        `💰 Цена: *$${formatPrice(price)}*\n` +
+        `📊 Объём 24ч: $${Math.round(volume24h).toLocaleString()}\n` +
+        `💧 Ликвидность: $${Math.round(liquidity).toLocaleString()}\n` +
+        `📉 24ч: ${change24h.toFixed(2)}%\n` +
+        `🔗 [DexScreener](${dexUrl})`;
+
+      await sendTelegram(message);
+      console.log(`[АЛЕРТ] ${symbol}`);
+    }
+  }
+
+  // Сохраняем текущие цены для следующего запуска
+  const fs = require('fs');
+  fs.writeFileSync('prices.json', JSON.stringify(currentPrices));
+  console.log('Цены сохранены');
 }
 
-// Запуск сразу при старте — сохраняет начальные цены (алертов ещё нет)
-checkAll();
-
-// -------------------------------------------------------
-// ИНТЕРВАЛ ПРОВЕРКИ — сейчас каждые 5 минут
-// Если хочешь проверять чаще — измени число:
-// '*/1 * * * *'  = каждую минуту
-// '*/2 * * * *'  = каждые 2 минуты
-// '*/5 * * * *'  = каждые 5 минут (текущее)
-// ВАЖНО: DexScreener лимит 300 запросов/мин
-// При 20 токенах и проверке каждую минуту = 20 запросов/мин, всё ок
-// -------------------------------------------------------
-cron.schedule('*/5 * * * *', checkAll);
-
-console.log('🤖 DEX Alerts Bot запущен');
-
-
-// Фиктивный HTTP сервер чтобы Back4app не падал с ошибкой порта
-// Бот работает независимо от этого сервера
-const http = require('http');
-http.createServer((req, res) => res.end('OK')).listen(3000);
+main().catch(console.error);
