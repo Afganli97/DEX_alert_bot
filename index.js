@@ -1,4 +1,4 @@
-const fetch = require('node-fetch');
+дconst fetch = require('node-fetch');
 
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const CHAT_ID = process.env.CHAT_ID;
@@ -135,5 +135,9 @@ async function main() {
   fs.writeFileSync('prices.json', JSON.stringify(currentPrices));
   console.log('Цены сохранены');
 }
+
+console.log("=== BOT STARTED ===");
+console.log("Time:", new Date().toISOString());
+
 
 main().catch(console.error);
