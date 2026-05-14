@@ -1,5 +1,8 @@
 name: DEX Alerts Bot
 
+env:
+  ACTIONS_STEP_DEBUG: true
+
 on:
   schedule:
     - cron: '*/5 * * * *'
