@@ -16,11 +16,11 @@ const tokens = require('./tokens');
 
 async function sendTelegram(message) {
 
-  console.log("Preparing Telegram message...");
-
   const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
 
   try {
+
+    console.log("Sending Telegram message...");
 
     const response = await fetch(url, {
       method: 'POST',
@@ -37,13 +37,15 @@ async function sendTelegram(message) {
 
     const data = await response.json();
 
-    console.log("Telegram API response:");
-    console.log(JSON.stringify(data, null, 2));
-
     if (!data.ok) {
-      console.error("Telegram send failed");
+
+      console.error("Telegram API ERROR:");
+      console.error(JSON.stringify(data, null, 2));
+
     } else {
-      console.log("Telegram message sent successfully");
+
+      console.log("Telegram message sent");
+
     }
 
   } catch (err) {
@@ -62,15 +64,13 @@ async function checkToken(token) {
 
     console.log("----------------------------------");
     console.log(`Checking token: ${token.name}`);
-    console.log(`Address: ${token.address}`);
 
-    const url = `https://api.dexscreener.com/latest/dex/tokens/${token.address}`;
-
-    console.log("Fetching DexScreener data...");
+    const url =
+      `https://api.dexscreener.com/latest/dex/tokens/${token.address}`;
 
     const res = await fetch(url);
 
-    console.log("DexScreener status:", res.status);
+    console.log(`DexScreener status: ${res.status}`);
 
     const data = await res.json();
 
@@ -78,27 +78,27 @@ async function checkToken(token) {
 
     if (!pairs || pairs.length === 0) {
 
-      console.log(`${token.name}: NO PAIRS FOUND`);
+      console.log(`${token.name}: no pairs found`);
 
       return null;
     }
 
-    console.log(`Pairs found: ${pairs.length}`);
-
     const pair = pairs.sort((a, b) =>
-      (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0)
+      (b.liquidity?.usd || 0) -
+      (a.liquidity?.usd || 0)
     )[0];
 
     const price = parseFloat(pair.priceUsd || 0);
 
     if (price === 0) {
 
-      console.log(`${token.name}: INVALID PRICE`);
+      console.log(`${token.name}: invalid price`);
 
       return null;
     }
 
-    const symbol = pair.baseToken?.symbol || token.name;
+    const symbol =
+      pair.baseToken?.symbol || token.name;
 
     console.log(`[OK] ${symbol}: $${price}`);
 
@@ -137,9 +137,10 @@ async function main() {
 
   try {
 
+    console.log("");
     console.log("==================================");
-    console.log("MAIN FUNCTION STARTED");
-    console.log("Heartbeat:", Date.now());
+    console.log("NEW CHECK CYCLE");
+    console.log("TIME:", new Date().toISOString());
     console.log("==================================");
 
     if (!TELEGRAM_TOKEN) {
@@ -150,15 +151,13 @@ async function main() {
       throw new Error("CHAT_ID is missing");
     }
 
-    console.log(`Checking ${tokens.length} tokens...`);
+    console.log(`Checking ${tokens.length} tokens`);
 
     let prevPrices = {};
 
     try {
 
       if (fs.existsSync('prices.json')) {
-
-        console.log("prices.json found");
 
         prevPrices = JSON.parse(
           fs.readFileSync('prices.json', 'utf8')
@@ -168,14 +167,14 @@ async function main() {
 
       } else {
 
-        console.log("prices.json NOT found");
-        console.log("First launch detected");
+        console.log("prices.json not found");
+        console.log("First launch");
 
       }
 
     } catch (err) {
 
-      console.error("Failed to load prices.json");
+      console.error("Failed loading prices.json");
       console.error(err);
 
     }
@@ -184,18 +183,15 @@ async function main() {
 
     for (const token of tokens) {
 
-      console.log("");
-      console.log("==================================");
-
       const result = await checkToken(token);
 
-      console.log("Waiting 800ms before next request...");
-
-      await new Promise(r => setTimeout(r, 800));
+      await new Promise(r =>
+        setTimeout(r, 1000)
+      );
 
       if (!result) {
 
-        console.log(`Skipping token: ${token.name}`);
+        console.log(`Skipping ${token.name}`);
 
         continue;
       }
@@ -216,7 +212,7 @@ async function main() {
       ) {
 
         alerts.push(
-          `🟢 Цена выше порога $${token.alertAbove}`
+          `🟢 Цена выше $${token.alertAbove}`
         );
       }
 
@@ -226,7 +222,7 @@ async function main() {
       ) {
 
         alerts.push(
-          `🔴 Цена ниже порога $${token.alertBelow}`
+          `🔴 Цена ниже $${token.alertBelow}`
         );
       }
 
@@ -259,7 +255,11 @@ async function main() {
           );
 
           alerts.push(
-            `Было: $${formatPrice(prev)} → Стало: $${formatPrice(price)}`
+            `Было: $${formatPrice(prev)}`
+          );
+
+          alerts.push(
+            `Стало: $${formatPrice(price)}`
           );
         }
       }
@@ -268,7 +268,7 @@ async function main() {
 
       if (alerts.length > 0) {
 
-        console.log(`ALERT TRIGGERED: ${symbol}`);
+        console.log(`ALERT: ${symbol}`);
 
         const change24h =
           parseFloat(pair.priceChange?.h24 || 0);
@@ -303,27 +303,12 @@ async function main() {
       }
     }
 
-    console.log("");
-    console.log("Saving prices.json...");
-
     fs.writeFileSync(
       'prices.json',
       JSON.stringify(currentPrices, null, 2)
     );
 
-    console.log("prices.json saved");
-
-    console.log("");
-    console.log("Sending final test message...");
-
-    await sendTelegram(
-      "✅ DEX bot finished successfully"
-    );
-
-    console.log("");
-    console.log("==================================");
-    console.log("BOT FINISHED SUCCESSFULLY");
-    console.log("==================================");
+    console.log("prices.json updated");
 
   } catch (err) {
 
@@ -336,12 +321,14 @@ async function main() {
     try {
 
       await sendTelegram(
-        `❌ BOT ERROR:\n${err.message}`
+        `❌ BOT ERROR\n${err.message}`
       );
 
     } catch (e) {
 
-      console.error("Failed to send error to Telegram");
+      console.error(
+        "Failed sending Telegram error"
+      );
 
     }
   }
@@ -349,6 +336,7 @@ async function main() {
 
 async function startBot() {
 
+  console.log("");
   console.log("==================================");
   console.log("DEX BOT 24/7 MODE STARTED");
   console.log("==================================");
@@ -357,27 +345,21 @@ async function startBot() {
 
     try {
 
-      console.log("");
-      console.log("==================================");
-      console.log("NEW CHECK CYCLE");
-      console.log("TIME:", new Date().toISOString());
-      console.log("==================================");
-
       await main();
 
       console.log("");
-      console.log("Cycle completed successfully");
+      console.log("Cycle completed");
 
     } catch (err) {
 
       console.error("");
-      console.error("CYCLE ERROR:");
+      console.error("CYCLE ERROR");
       console.error(err);
 
     }
 
     console.log("");
-    console.log("Waiting 60 seconds before next cycle...");
+    console.log("Waiting 60 seconds...");
 
     await new Promise(resolve =>
       setTimeout(resolve, 60000)
