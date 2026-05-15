@@ -108,8 +108,21 @@ async function checkToken(token) {
     const url =
       `https://api.dexscreener.com/latest/dex/tokens/${token.address}`;
 
-    // Выполнение HTTP-запроса
-    const res = await fetch(url);
+    // Создание контроллера отмены запроса
+const controller = new AbortController();
+
+// Таймер принудительной остановки запроса через 15 секунд
+const timeout = setTimeout(() => {
+  controller.abort();
+}, 15000);
+
+// Выполнение HTTP-запроса с timeout защитой
+const res = await fetch(url, {
+  signal: controller.signal
+});
+
+// Очистка timeout после успешного запроса
+clearTimeout(timeout);
 
     // Вывод HTTP статуса ответа
     console.log(`DexScreener status: ${res.status}`);
