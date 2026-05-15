@@ -16,6 +16,12 @@ const fetch = require('node-fetch');
 // Подключение модуля для работы с файлами
 const fs = require('fs');
 
+// Подключение Express сервера
+const express = require('express');
+
+// Создание Express приложения
+const app = express();
+
 // Подключение AbortController для timeout HTTP-запросов
 const AbortController = global.AbortController;
 
