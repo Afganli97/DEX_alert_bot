@@ -1,103 +1,157 @@
-console.log("==================================");
-console.log("DEX BOT STARTED");
-console.log("TIME:", new Date().toISOString());
+// Разделитель логов при запуске бота
 console.log("==================================");
 
+// Сообщение о старте бота
+console.log("DEX BOT STARTED");
+
+// Вывод текущего времени запуска
+console.log("TIME:", new Date().toISOString());
+
+// Разделитель логов
+console.log("==================================");
+
+// Подключение библиотеки для HTTP-запросов
 const fetch = require('node-fetch');
+
+// Подключение модуля для работы с файлами
 const fs = require('fs');
 
+// Получение Telegram токена из переменных окружения
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
+
+// Получение ID чата Telegram из переменных окружения
 const CHAT_ID = process.env.CHAT_ID;
 
+// Подключение списка токенов из отдельного файла
 const tokens = require('./tokens');
 
+// Функция отправки сообщения в Telegram
 async function sendTelegram(message) {
 
+  // Формирование URL Telegram API
   const url =
     `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
 
   try {
 
+    // Лог отправки уведомления
     console.log("Sending Telegram alert...");
 
+    // Отправка POST-запроса в Telegram API
     const response = await fetch(url, {
       method: 'POST',
       headers: {
+        // Указание JSON формата запроса
         'Content-Type': 'application/json'
       },
+      // Тело запроса
       body: JSON.stringify({
+        // ID Telegram чата
         chat_id: CHAT_ID,
+
+        // Текст сообщения
         text: message,
+
+        // Использование Markdown форматирования
         parse_mode: 'Markdown',
+
+        // Отключение предпросмотра ссылок
         disable_web_page_preview: true
       })
     });
 
+    // Преобразование ответа Telegram API в JSON
     const data = await response.json();
 
+    // Проверка успешности запроса
     if (!data.ok) {
 
-      console.error("Telegram API error:");
+      // Вывод ошибки Telegram API
+      console.error("Telegram API error");
+
+      // Вывод полного ответа Telegram API
       console.error(JSON.stringify(data, null, 2));
 
     } else {
 
+      // Лог успешной отправки уведомления
       console.log("Telegram alert sent");
 
     }
 
   } catch (err) {
 
+    // Лог ошибки Telegram
     console.error("TELEGRAM ERROR");
+
+    // Вывод объекта ошибки
     console.error(err);
 
   }
 }
 
+// Функция проверки цены токена
 async function checkToken(token) {
 
   try {
 
+    // Разделитель логов
     console.log("----------------------------------");
+
+    // Лог проверки токена
     console.log(`Checking ${token.name}`);
 
+    // Формирование URL запроса к DexScreener API
     const url =
       `https://api.dexscreener.com/latest/dex/tokens/${token.address}`;
 
+    // Выполнение HTTP-запроса
     const res = await fetch(url);
 
+    // Вывод HTTP статуса ответа
     console.log(`DexScreener status: ${res.status}`);
 
+    // Преобразование ответа API в JSON
     const data = await res.json();
 
+    // Получение массива торговых пар
     const pairs = data?.pairs;
 
+    // Проверка наличия торговых пар
     if (!pairs || pairs.length === 0) {
 
+      // Лог отсутствия торговых пар
       console.log(`${token.name}: no pairs`);
 
       return null;
     }
 
+    // Сортировка пар по ликвидности и выбор самой ликвидной
     const pair = pairs.sort((a, b) =>
       (b.liquidity?.usd || 0) -
       (a.liquidity?.usd || 0)
     )[0];
 
+    // Получение цены токена
     const price = parseFloat(pair.priceUsd || 0);
 
+    // Проверка корректности цены
     if (!price || price <= 0) {
 
+      // Лог некорректной цены
       console.log(`${token.name}: invalid price`);
 
       return null;
     }
 
+    // Получение символа токена
     const symbol =
       pair.baseToken?.symbol || token.name;
 
+    // Вывод текущей цены токена
     console.log(`${symbol}: $${price}`);
 
+    // Возврат данных токена
     return {
       token,
       price,
@@ -107,95 +161,132 @@ async function checkToken(token) {
 
   } catch (err) {
 
+    // Лог ошибки проверки токена
     console.error(`TOKEN ERROR: ${token.name}`);
+
+    // Вывод объекта ошибки
     console.error(err);
 
     return null;
   }
 }
 
+// Функция форматирования цены
 function formatPrice(price) {
 
+  // Для очень маленьких значений используется экспоненциальный формат
   if (price < 0.0001) {
     return price.toExponential(3);
   }
 
+  // Для значений меньше 1 используется precision
   if (price < 1) {
     return price.toPrecision(4);
   }
 
+  // Для остальных значений используется fixed
   return price.toFixed(4);
 }
 
+// Главная функция цикла проверки
 async function main() {
 
   try {
 
+    // Пустая строка для читаемости логов
     console.log("");
-    console.log("==================================");
-    console.log("NEW CHECK CYCLE");
-    console.log(new Date().toISOString());
+
+    // Разделитель нового цикла
     console.log("==================================");
 
+    // Лог нового цикла проверки
+    console.log("NEW CHECK CYCLE");
+
+    // Вывод времени начала цикла
+    console.log(new Date().toISOString());
+
+    // Разделитель логов
+    console.log("==================================");
+
+    // Проверка наличия Telegram токена
     if (!TELEGRAM_TOKEN) {
       throw new Error("Missing TELEGRAM_TOKEN");
     }
 
+    // Проверка наличия ID чата
     if (!CHAT_ID) {
       throw new Error("Missing CHAT_ID");
     }
 
+    // Объект для хранения anchor-цен
     let alertPrices = {};
 
     try {
 
+      // Проверка существования файла с ценами
       if (fs.existsSync('prices.json')) {
 
+        // Загрузка сохранённых цен из файла
         alertPrices = JSON.parse(
           fs.readFileSync('prices.json', 'utf8')
         );
 
+        // Лог успешной загрузки
         console.log("Loaded alert anchor prices");
 
       } else {
 
+        // Лог отсутствия файла
         console.log("prices.json not found");
+
+        // Лог создания базовых цен
         console.log("Creating first baseline");
 
       }
 
     } catch (err) {
 
+      // Лог ошибки загрузки файла
       console.error("prices.json load error");
+
+      // Вывод объекта ошибки
       console.error(err);
 
     }
 
+    // Перебор всех токенов
     for (const token of tokens) {
 
+      // Проверка текущего токена
       const result = await checkToken(token);
 
+      // Задержка между запросами
       await new Promise(r =>
         setTimeout(r, 1000)
       );
 
+      // Пропуск токена при ошибке
       if (!result) {
         continue;
       }
 
+      // Деструктуризация результата
       const {
         price,
         pair,
         symbol
       } = result;
 
+      // Использование адреса токена как ключа
       const key = token.address;
 
       // ПЕРВЫЙ ЗАПУСК
       if (alertPrices[key] === undefined) {
 
+        // Сохранение первой цены как anchor-price
         alertPrices[key] = price;
 
+        // Лог сохранения baseline цены
         console.log(
           `${symbol}: baseline saved at $${price}`
         );
@@ -203,41 +294,53 @@ async function main() {
         continue;
       }
 
+      // Получение предыдущей anchor-цены
       const anchorPrice =
         alertPrices[key];
 
+      // Расчёт процентного изменения цены
       const changePct =
         ((price - anchorPrice) / anchorPrice) * 100;
 
+      // Вывод процента изменения
       console.log(
         `${symbol}: ${changePct.toFixed(2)}% from last alert`
       );
 
+      // Проверка превышения порога изменения цены
       if (
         Math.abs(changePct) >= token.changeAlert
       ) {
 
+        // Выбор эмодзи направления движения цены
         const direction =
           changePct > 0 ? '📈' : '📉';
 
+        // Добавление плюса для положительного значения
         const sign =
           changePct > 0 ? '+' : '';
 
+        // Получение объёма торгов за 24 часа
         const volume24h =
           pair.volume?.h24 || 0;
 
+        // Получение ликвидности
         const liquidity =
           pair.liquidity?.usd || 0;
 
+        // Получение изменения цены за 24 часа
         const change24h =
           parseFloat(pair.priceChange?.h24 || 0);
 
+        // Получение ссылки DexScreener
         const dexUrl =
           pair.url || '';
 
+        // Получение названия сети токена
         const chain =
           token.chain.toUpperCase();
 
+        // Формирование текста уведомления
         const message =
           `⚠️ *${symbol}* (${chain})\n\n` +
           `${direction} Изменение: *${sign}${changePct.toFixed(2)}%*\n\n` +
@@ -248,73 +351,103 @@ async function main() {
           `📉 24ч: ${change24h.toFixed(2)}%\n` +
           `🔗 [DexScreener](${dexUrl})`;
 
+        // Отправка уведомления в Telegram
         await sendTelegram(message);
 
         // ОБНОВЛЯЕМ ЯКОРЬ ТОЛЬКО ПОСЛЕ ALERT
         alertPrices[key] = price;
 
+        // Лог обновления anchor-цены
         console.log(
           `${symbol}: alert anchor updated`
         );
       }
     }
 
+    // Сохранение обновлённых цен в файл
     fs.writeFileSync(
       'prices.json',
       JSON.stringify(alertPrices, null, 2)
     );
 
+    // Лог успешного обновления файла
     console.log("prices.json updated");
 
   } catch (err) {
 
+    // Лог критической ошибки
     console.error("FATAL ERROR");
+
+    // Вывод объекта ошибки
     console.error(err);
 
     try {
 
+      // Попытка отправить сообщение об ошибке в Telegram
       await sendTelegram(
         `❌ BOT ERROR\n${err.message}`
       );
 
     } catch (e) {
 
+      // Лог ошибки отправки сообщения об ошибке
       console.error("Telegram error send failed");
 
     }
   }
 }
 
+// Функция бесконечной работы бота
 async function startBot() {
 
+  // Пустая строка для читаемости логов
   console.log("");
-  console.log("==================================");
-  console.log("DEX BOT 24/7 MODE");
+
+  // Разделитель логов
   console.log("==================================");
 
+  // Лог запуска 24/7 режима
+  console.log("DEX BOT 24/7 MODE");
+
+  // Разделитель логов
+  console.log("==================================");
+
+  // Бесконечный цикл работы
   while (true) {
 
     try {
 
+      // Запуск основного цикла проверки
       await main();
 
+      // Пустая строка для читаемости логов
       console.log("");
+
+      // Лог завершения цикла
       console.log("Cycle completed");
 
     } catch (err) {
 
+      // Лог ошибки цикла
       console.error("CYCLE ERROR");
+
+      // Вывод объекта ошибки
       console.error(err);
 
     }
 
+    // Пустая строка для читаемости логов
     console.log("");
+
+    // Лог ожидания перед следующим циклом
     console.log("Waiting 60 seconds...");
 
+    // Пауза 60 секунд между циклами
     await new Promise(resolve =>
       setTimeout(resolve, 60000)
     );
   }
 }
 
+// Запуск бота
 startBot();
