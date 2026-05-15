@@ -136,16 +136,25 @@ const timeout = setTimeout(() => {
 
 }, 15000);
 
-// Выполнение HTTP-запроса с timeout-защитой
-const res = await fetch(url, {
+// Переменная HTTP ответа
+let res;
 
-  // Подключение AbortController к запросу
-  signal: controller.signal
+try {
 
-});
+  // Выполнение HTTP-запроса с timeout-защитой
+  res = await fetch(url, {
 
-// Очистка timeout после успешного ответа
-clearTimeout(timeout);
+    // Подключение AbortController к запросу
+    signal: controller.signal
+
+  });
+
+} finally {
+
+  // Очистка timeout в любом случае
+  clearTimeout(timeout);
+
+}
 
 // Проверка успешности HTTP ответа
 if (!res.ok) {
