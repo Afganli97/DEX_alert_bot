@@ -465,7 +465,12 @@ console.log(
       console.error("Telegram error send failed");
 
     }
-  }
+  }finally {
+
+  // Снятие блокировки цикла
+  isChecking = false;
+
+ }
 }
 
 // Получение порта Render
