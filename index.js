@@ -108,21 +108,38 @@ async function checkToken(token) {
     const url =
       `https://api.dexscreener.com/latest/dex/tokens/${token.address}`;
 
-    // Создание контроллера отмены запроса
+    // Создание контроллера отмены HTTP-запроса
 const controller = new AbortController();
 
 // Таймер принудительной остановки запроса через 15 секунд
 const timeout = setTimeout(() => {
+
+  // Принудительная отмена зависшего запроса
   controller.abort();
+
 }, 15000);
 
-// Выполнение HTTP-запроса с timeout защитой
+// Выполнение HTTP-запроса с timeout-защитой
 const res = await fetch(url, {
+
+  // Подключение AbortController к запросу
   signal: controller.signal
+
 });
 
-// Очистка timeout после успешного запроса
+// Очистка timeout после успешного ответа
 clearTimeout(timeout);
+
+// Проверка успешности HTTP ответа
+if (!res.ok) {
+
+  // Лог HTTP ошибки
+  console.log(
+    `${token.name}: HTTP ${res.status}`
+  );
+
+  return null;
+}
 
     // Вывод HTTP статуса ответа
     console.log(`DexScreener status: ${res.status}`);
