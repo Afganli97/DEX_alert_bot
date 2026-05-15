@@ -126,46 +126,46 @@ async function checkToken(token) {
       `https://api.dexscreener.com/latest/dex/tokens/${token.address}`;
 
     // Создание контроллера отмены HTTP-запроса
-const controller = new AbortController();
+    const controller = new AbortController();
 
-// Таймер принудительной остановки запроса через 15 секунд
-const timeout = setTimeout(() => {
+    // Таймер принудительной остановки запроса через 15 секунд
+    const timeout = setTimeout(() => {
 
-  // Принудительная отмена зависшего запроса
-  controller.abort();
+      // Принудительная отмена зависшего запроса
+      controller.abort();
 
-}, 15000);
+    }, 15000);
 
-// Переменная HTTP ответа
-let res;
+    // Переменная HTTP ответа
+    let res;
 
-try {
+    try {
 
-  // Выполнение HTTP-запроса с timeout-защитой
-  res = await fetch(url, {
+      // Выполнение HTTP-запроса с timeout-защитой
+      res = await fetch(url, {
 
-    // Подключение AbortController к запросу
-    signal: controller.signal
+        // Подключение AbortController к запросу
+        signal: controller.signal
 
-  });
+      });
 
-} finally {
+    } finally {
 
-  // Очистка timeout в любом случае
-  clearTimeout(timeout);
+      // Очистка timeout в любом случае
+      clearTimeout(timeout);
 
-}
+    }
 
-// Проверка успешности HTTP ответа
-if (!res.ok) {
+    // Проверка успешности HTTP ответа
+    if (!res.ok) {
 
-  // Лог HTTP ошибки
-  console.log(
-    `${token.name}: HTTP ${res.status}`
-  );
+      // Лог HTTP ошибки
+      console.log(
+        `${token.name}: HTTP ${res.status}`
+      );
 
-  return null;
-}
+      return null;
+    }
 
     // Вывод HTTP статуса ответа
     console.log(`DexScreener status: ${res.status}`);
@@ -252,17 +252,17 @@ async function main() {
 
   try {
 
-// Проверка уже активного цикла
-if (isChecking) {
+    // Проверка уже активного цикла
+    if (isChecking) {
 
-  // Лог пропуска нового цикла
-  console.log("Previous cycle still running");
+      // Лог пропуска нового цикла
+      console.log("Previous cycle still running");
 
-  return;
-}
+      return;
+    }
 
-// Блокировка запуска нового цикла
-isChecking = true;
+    // Блокировка запуска нового цикла
+    isChecking = true;
 
     // Пустая строка для читаемости логов
     console.log("");
@@ -358,9 +358,9 @@ isChecking = true;
         alertPrices[key] = price;
 
         // Лог сохранения первой anchor-цены
-console.log(
-  `${symbol}: first baseline created at $${price}`
-);
+        console.log(
+          `${symbol}: first baseline created at $${price}`
+        );
 
         continue;
       }
@@ -383,7 +383,7 @@ console.log(
         Math.abs(changePct) >= token.changeAlert
       ) {
 
-        // Выбор эмодзи направления движения цены
+        // Выбор эмодзи направления движения цены (вверх или вниз)
         const direction =
           changePct > 0 ? '📈' : '📉';
 
@@ -391,36 +391,10 @@ console.log(
         const sign =
           changePct > 0 ? '+' : '';
 
-        // Получение объёма торгов за 24 часа
-        const volume24h =
-          pair.volume?.h24 || 0;
-
-        // Получение ликвидности
-        const liquidity =
-          pair.liquidity?.usd || 0;
-
-        // Получение изменения цены за 24 часа
-        const change24h =
-          parseFloat(pair.priceChange?.h24 || 0);
-
-        // Получение ссылки DexScreener
-        const dexUrl =
-          pair.url || '';
-
-        // Получение названия сети токена
-        const chain =
-          token.chain.toUpperCase();
-
-        // Формирование текста уведомления
+        // Формирование короткого текста уведомления: эмодзи, название, изменение, цена
         const message =
-          `⚠️ *${symbol}* (${chain})\n\n` +
-          `${direction} Изменение: *${sign}${changePct.toFixed(2)}%*\n\n` +
-          `📍 Последний alert-price: $${formatPrice(anchorPrice)}\n` +
-          `💰 Текущая цена: $${formatPrice(price)}\n\n` +
-          `📊 Объём 24ч: $${Math.round(volume24h).toLocaleString()}\n` +
-          `💧 Ликвидность: $${Math.round(liquidity).toLocaleString()}\n` +
-          `📉 24ч: ${change24h.toFixed(2)}%\n` +
-          `🔗 [DexScreener](${dexUrl})`;
+          `${direction} *${symbol}* ${sign}${changePct.toFixed(2)}%\n` +
+          `$${formatPrice(price)}`;
 
         // Отправка уведомления в Telegram
         await sendTelegram(message);
@@ -465,12 +439,12 @@ console.log(
       console.error("Telegram error send failed");
 
     }
-  }finally {
+  } finally {
 
-  // Снятие блокировки цикла
-  isChecking = false;
+    // Снятие блокировки цикла
+    isChecking = false;
 
- }
+  }
 }
 
 // Получение порта Render
