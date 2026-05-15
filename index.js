@@ -496,5 +496,24 @@ async function startBot() {
   }
 }
 
-// Запуск бота
-startBot();
+// Получение порта Render
+const PORT = process.env.PORT || 3000;
+
+// Запуск HTTP сервера
+app.listen(PORT, () => {
+
+  // Лог запуска сервера
+  console.log(`Web server running on port ${PORT}`);
+
+});
+
+// Первый запуск проверки
+main();
+
+// Запуск проверки каждые 60 секунд
+setInterval(() => {
+
+  // Запуск основного цикла проверки
+  main();
+
+}, 60000);
