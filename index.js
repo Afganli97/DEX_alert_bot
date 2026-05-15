@@ -252,6 +252,18 @@ async function main() {
 
   try {
 
+// Проверка уже активного цикла
+if (isChecking) {
+
+  // Лог пропуска нового цикла
+  console.log("Previous cycle still running");
+
+  return;
+}
+
+// Блокировка запуска нового цикла
+isChecking = true;
+
     // Пустая строка для читаемости логов
     console.log("");
 
