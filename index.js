@@ -34,6 +34,14 @@ const CHAT_ID = process.env.CHAT_ID;
 // Подключение списка токенов из отдельного файла
 const tokens = require('./tokens');
 
+// Healthcheck endpoint для Render
+app.get('/', (req, res) => {
+
+  // Ответ Render о том что бот жив
+  res.send('DEX BOT IS RUNNING');
+
+});
+
 // Функция отправки сообщения в Telegram
 async function sendTelegram(message) {
 
