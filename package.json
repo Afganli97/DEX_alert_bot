@@ -6,6 +6,7 @@
     "start": "node index.js"
   },
   "dependencies": {
+    "express": "^4.19.2",
     "node-fetch": "2.6.9",
     "node-cron": "3.0.3"
   }
