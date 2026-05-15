@@ -302,10 +302,10 @@ async function main() {
         // Сохранение первой цены как anchor-price
         alertPrices[key] = price;
 
-        // Лог сохранения baseline цены
-        console.log(
-          `${symbol}: baseline saved at $${price}`
-        );
+        // Лог сохранения первой anchor-цены
+console.log(
+  `${symbol}: first baseline created at $${price}`
+);
 
         continue;
       }
