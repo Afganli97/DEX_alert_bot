@@ -34,6 +34,9 @@ const CHAT_ID = process.env.CHAT_ID;
 // Подключение списка токенов из отдельного файла
 const tokens = require('./tokens');
 
+// Флаг активного цикла проверки
+let isChecking = false;
+
 // Healthcheck endpoint для Render
 app.get('/', (req, res) => {
 
