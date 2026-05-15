@@ -16,6 +16,9 @@ const fetch = require('node-fetch');
 // Подключение модуля для работы с файлами
 const fs = require('fs');
 
+// Подключение AbortController для timeout HTTP-запросов
+const AbortController = global.AbortController;
+
 // Получение Telegram токена из переменных окружения
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 
