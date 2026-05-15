@@ -444,58 +444,6 @@ console.log(
   }
 }
 
-// Функция бесконечной работы бота
-async function startBot() {
-
-  // Пустая строка для читаемости логов
-  console.log("");
-
-  // Разделитель логов
-  console.log("==================================");
-
-  // Лог запуска 24/7 режима
-  console.log("DEX BOT 24/7 MODE");
-
-  // Разделитель логов
-  console.log("==================================");
-
-  // Бесконечный цикл работы
-  while (true) {
-
-    try {
-
-      // Запуск основного цикла проверки
-      await main();
-
-      // Пустая строка для читаемости логов
-      console.log("");
-
-      // Лог завершения цикла
-      console.log("Cycle completed");
-
-    } catch (err) {
-
-      // Лог ошибки цикла
-      console.error("CYCLE ERROR");
-
-      // Вывод объекта ошибки
-      console.error(err);
-
-    }
-
-    // Пустая строка для читаемости логов
-    console.log("");
-
-    // Лог ожидания перед следующим циклом
-    console.log("Waiting 60 seconds...");
-
-    // Пауза 60 секунд между циклами
-    await new Promise(resolve =>
-      setTimeout(resolve, 60000)
-    );
-  }
-}
-
 // Получение порта Render
 const PORT = process.env.PORT || 3000;
 
