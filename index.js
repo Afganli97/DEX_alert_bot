@@ -384,17 +384,21 @@ async function main() {
       ) {
 
         // Выбор эмодзи направления движения цены (вверх или вниз)
-        const direction =
-          changePct > 0 ? '📈' : '📉';
+const direction =
+  changePct > 0 ? '🚀' : '🔻';
 
-        // Добавление плюса для положительного значения
-        const sign =
-          changePct > 0 ? '+' : '';
+// Добавление плюса для положительного значения
+const sign =
+  changePct > 0 ? '+' : '';
 
-        // Формирование короткого текста уведомления: эмодзи, название, изменение, цена
-        const message =
-          `${direction} *${symbol}* ${sign}${changePct.toFixed(2)}%\n` +
-          `$${formatPrice(price)}`;
+// Получение ссылки DexScreener для названия токена
+const dexUrl =
+  pair.url || '';
+
+// Формирование сообщения: токен как ссылка (синий цвет), стрелка, изменение, цена
+const message =
+  `${direction} [${symbol}](${dexUrl}) ${sign}${changePct.toFixed(2)}%\n` +
+  `$${formatPrice(price)}`;
 
         // Отправка уведомления в Telegram
         await sendTelegram(message);
