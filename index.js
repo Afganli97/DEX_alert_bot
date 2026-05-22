@@ -1,6 +1,6 @@
 // ==============================
-// DEX ALERT BOT с MongoDB (v2.2)
-// Исправлен Markdown алертов, добавлены логи webhook
+// DEX ALERT BOT с MongoDB (v2.3)
+// Все сообщения используют HTML, а не Markdown
 // ==============================
 
 console.log("==================================");
@@ -84,13 +84,13 @@ async function updateLastAlertPrice(address, price) {
   );
 }
 
-// ---------- Функция для безопасного URL в Markdown ----------
-function escapeMarkdownUrl(url) {
-  return url.replace(/\)/g, '%29').replace(/\(/g, '%28');
+// ---------- Экранирование HTML‑символов (на всякий случай) ----------
+function escapeHtml(text) {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-// ---------- Отправка сообщений в Telegram ----------
-async function sendTelegram(message, parseMode = 'Markdown') {
+// ---------- Отправка сообщений в Telegram (всегда HTML) ----------
+async function sendTelegram(message) {
   const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
   try {
     console.log("📤 Sending Telegram message...");
@@ -100,7 +100,7 @@ async function sendTelegram(message, parseMode = 'Markdown') {
       body: JSON.stringify({
         chat_id: CHAT_ID,
         text: message,
-        parse_mode: parseMode,
+        parse_mode: 'HTML',
         disable_web_page_preview: true,
       }),
     });
@@ -139,10 +139,10 @@ async function fetchTokenInfo(address) {
   }
 }
 
-// ---------- Обработка webhook (сообщения от пользователя) ----------
+// ---------- Обработка webhook ----------
 app.post('/webhook', async (req, res) => {
-  res.sendStatus(200); // отвечаем быстро
-  console.log("📨 Webhook received:", JSON.stringify(req.body).slice(0, 200)); // лог первых 200 символов
+  res.sendStatus(200);
+  console.log("📨 Webhook received:", JSON.stringify(req.body).slice(0, 200));
   try {
     const message = req.body?.message;
     if (!message || !message.text) {
@@ -156,12 +156,12 @@ app.post('/webhook', async (req, res) => {
       return;
     }
 
-    // ---------- КОМАНДЫ, ДОСТУПНЫЕ ВСЕГДА ----------
+    // ---------- Команды, доступные всегда ----------
     if (text === '/start' || text === '/help') {
       userState = null;
       pendingData = {};
       await sendTelegram(
-        '📖 *Команды бота:*\n\n' +
+        '<b>📖 Команды бота:</b>\n\n' +
         '/add — добавить токен для отслеживания\n' +
         '/remove — удалить токен (выбор из списка, подтверждение)\n' +
         '/list — показать список отслеживаемых токенов\n' +
@@ -180,7 +180,7 @@ app.post('/webhook', async (req, res) => {
       return;
     }
 
-    // ---------- ОБРАБОТКА СОСТОЯНИЙ ----------
+    // ---------- Обработка состояний ----------
     if (userState === 'awaiting_remove_select') {
       const num = parseInt(text);
       const tokens = await getAllTokens();
@@ -192,9 +192,9 @@ app.post('/webhook', async (req, res) => {
       pendingData.removeToken = selected;
       userState = 'awaiting_remove_confirm';
       await sendTelegram(
-        `Вы выбрали *${selected.name.toUpperCase()}* (${selected.chain})\n` +
-        `Адрес: \`${selected.address}\`\n\n` +
-        `Удалить этот токен? Напишите *yes* для подтверждения или *no* / /cancel для отмены.`
+        `Вы выбрали <b>${selected.name.toUpperCase()}</b> (${selected.chain})\n` +
+        `Адрес: <code>${selected.address}</code>\n\n` +
+        `Удалить этот токен? Напишите <b>yes</b> для подтверждения или <b>no</b> / /cancel для отмены.`
       );
       return;
     }
@@ -203,7 +203,7 @@ app.post('/webhook', async (req, res) => {
       if (text.toLowerCase() === 'yes') {
         const token = pendingData.removeToken;
         await removeTokenByAddress(token.address);
-        await sendTelegram(`✅ Токен *${token.name.toUpperCase()}* удалён из отслеживания.`);
+        await sendTelegram(`✅ Токен <b>${token.name.toUpperCase()}</b> удалён из отслеживания.`);
       } else {
         await sendTelegram('❌ Удаление отменено.');
       }
@@ -222,7 +222,7 @@ app.post('/webhook', async (req, res) => {
       pendingData.changeToken = tokens[num - 1];
       userState = 'awaiting_change_percent';
       await sendTelegram(
-        `Токен *${pendingData.changeToken.name.toUpperCase()}*, текущий порог: ${pendingData.changeToken.changeAlert}%\n` +
+        `Токен <b>${pendingData.changeToken.name.toUpperCase()}</b>, текущий порог: ${pendingData.changeToken.changeAlert}%\n` +
         `Введите новый процент (число от 1 до 100):`
       );
       return;
@@ -235,7 +235,7 @@ app.post('/webhook', async (req, res) => {
         return;
       }
       await updateTokenAlert(pendingData.changeToken.address, percent);
-      await sendTelegram(`🔧 Порог для *${pendingData.changeToken.name.toUpperCase()}* изменён на *${percent}%*`);
+      await sendTelegram(`🔧 Порог для <b>${pendingData.changeToken.name.toUpperCase()}</b> изменён на <b>${percent}%</b>`);
       userState = null;
       pendingData = {};
       return;
@@ -249,7 +249,7 @@ app.post('/webhook', async (req, res) => {
       }
       await updateAllAlerts(percent);
       const count = (await getAllTokens()).length;
-      await sendTelegram(`🔧 Процент для всех ${count} токенов изменён на *${percent}%*`);
+      await sendTelegram(`🔧 Процент для всех ${count} токенов изменён на <b>${percent}%</b>`);
       userState = null;
       pendingData = {};
       return;
@@ -283,7 +283,7 @@ app.post('/webhook', async (req, res) => {
       pendingData.newToken = tokenInfo;
       userState = 'percent';
       await sendTelegram(
-        `✅ Токен найден: *${tokenInfo.name.toUpperCase()}* (${tokenInfo.chain})\n\n` +
+        `✅ Токен найден: <b>${tokenInfo.name.toUpperCase()}</b> (${tokenInfo.chain})\n\n` +
         `Введи процент изменения для алерта (число, например: 10):`
       );
       return;
@@ -303,16 +303,16 @@ app.post('/webhook', async (req, res) => {
         changeAlert: percent,
       });
       await sendTelegram(
-        `✅ Токен *${token.name.toUpperCase()}* добавлен!\n\n` +
+        `✅ Токен <b>${token.name.toUpperCase()}</b> добавлен!\n\n` +
         `Сеть: ${token.chain}\n` +
-        `Алерт: *${percent}%*`
+        `Алерт: <b>${percent}%</b>`
       );
       userState = null;
       pendingData = {};
       return;
     }
 
-    // ---------- КОМАНДЫ БЕЗ АКТИВНОГО СОСТОЯНИЯ ----------
+    // ---------- Команды без активного состояния ----------
     if (userState) {
       await sendTelegram('⏳ Вы находитесь в процессе ввода. Завершите действие или введите /cancel для отмены.');
       return;
@@ -332,11 +332,11 @@ app.post('/webhook', async (req, res) => {
         return;
       }
       const list = tokens.map((t, i) =>
-        `${i + 1}. *${t.name.toUpperCase()}* (${t.chain})\n` +
-        `   Адрес: \`${t.address}\`\n` +
+        `${i + 1}. <b>${t.name.toUpperCase()}</b> (${t.chain})\n` +
+        `   Адрес: <code>${t.address}</code>\n` +
         `   Алерт: ${t.changeAlert}%`
       ).join('\n\n');
-      await sendTelegram(`📋 *Отслеживаемые токены:*\n\n${list}`);
+      await sendTelegram(`📋 <b>Отслеживаемые токены:</b>\n\n${list}`);
       return;
     }
 
@@ -366,11 +366,11 @@ app.post('/webhook', async (req, res) => {
 
     if (text === '/change_all') {
       userState = 'awaiting_changeall_percent';
-      await sendTelegram('Введи процент, который будет установлен для *всех* токенов (число от 1 до 100):');
+      await sendTelegram('Введи процент, который будет установлен для <b>всех</b> токенов (число от 1 до 100):');
       return;
     }
 
-    // Если ничего не подошло
+    // Если команда не распознана
     await sendTelegram('Неизвестная команда. Используйте /help для списка команд.');
 
   } catch (err) {
@@ -456,9 +456,10 @@ async function main() {
       if (Math.abs(changePct) >= token.changeAlert) {
         const direction = changePct > 0 ? '🚀' : '🔻';
         const sign = changePct > 0 ? '+' : '';
-        const escapedUrl = escapeMarkdownUrl(pair.url || '');
+        // Формируем HTML-ссылку, экранируя кавычки
+        const dexUrl = pair.url || '';
         const message =
-          `${direction} [${symbol.toUpperCase()}](${escapedUrl}) ${sign}${changePct.toFixed(2)}%\n` +
+          `${direction} <a href="${dexUrl}">${symbol.toUpperCase()}</a> ${sign}${changePct.toFixed(2)}%\n` +
           `Цена: $${formatPrice(price)}`;
         await sendTelegram(message);
         await updateLastAlertPrice(token.address, price);
