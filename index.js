@@ -1,6 +1,11 @@
 // ==============================
-// DEX ALERT BOT с MongoDB (v2.3)
-// Все сообщения используют HTML, а не Markdown
+// DEX ALERT BOT с MongoDB (v2.7)
+// - Мгновенный перезапуск цикла при изменении данных
+// - Якоря не сбрасываются при смене процента
+// - HTML-разметка во всех сообщениях
+// - Надёжная обработка needRestart в finally
+// - Рекурсивный setTimeout вместо setInterval
+// - Проверка обязательных переменных окружения при старте
 // ==============================
 
 console.log("==================================");
@@ -12,6 +17,15 @@ const fetch = require('node-fetch');
 const express = require('express');
 const { MongoClient } = require('mongodb');
 const AbortController = global.AbortController;
+
+// ---------- Проверка обязательных переменных окружения ----------
+const requiredEnv = ['TELEGRAM_TOKEN', 'CHAT_ID', 'MONGO_URI'];
+for (const key of requiredEnv) {
+  if (!process.env[key]) {
+    console.error(`❌ Отсутствует обязательная переменная окружения: ${key}`);
+    process.exit(1);
+  }
+}
 
 // ---------- Конфигурация окружения ----------
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
@@ -26,6 +40,7 @@ app.use(express.json());
 let db;
 let tokensCollection;
 let isChecking = false;
+let needRestart = false;   // флаг требования перезапуска цикла
 
 let userState = null;
 let pendingData = {};
@@ -49,8 +64,12 @@ async function getAllTokens() {
   return await tokensCollection.find({}).toArray();
 }
 
+async function getTokenByAddress(address) {
+  return await tokensCollection.findOne({ address: address.toLowerCase() });
+}
+
 async function tokenExists(address) {
-  const existing = await tokensCollection.findOne({ address: address.toLowerCase() });
+  const existing = await getTokenByAddress(address);
   return !!existing;
 }
 
@@ -84,12 +103,12 @@ async function updateLastAlertPrice(address, price) {
   );
 }
 
-// ---------- Экранирование HTML‑символов (на всякий случай) ----------
-function escapeHtml(text) {
-  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+// Сброс всех якорных цен (ручная команда)
+async function resetAllAnchors() {
+  await tokensCollection.updateMany({}, { $set: { lastAlertPrice: null } });
 }
 
-// ---------- Отправка сообщений в Telegram (всегда HTML) ----------
+// ---------- Отправка сообщений в Telegram (HTML) ----------
 async function sendTelegram(message) {
   const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
   try {
@@ -167,6 +186,7 @@ app.post('/webhook', async (req, res) => {
         '/list — показать список отслеживаемых токенов\n' +
         '/change — изменить процент для одного токена\n' +
         '/change_all — установить одинаковый процент для всех токенов\n' +
+        '/reset_anchors — сбросить якорные цены (начать отсчёт заново)\n' +
         '/cancel — отменить текущее действие\n' +
         '/help — эта справка'
       );
@@ -177,6 +197,14 @@ app.post('/webhook', async (req, res) => {
       userState = null;
       pendingData = {};
       await sendTelegram('🚫 Текущее действие отменено.');
+      return;
+    }
+
+    // Команда сброса якорей (ручная)
+    if (text === '/reset_anchors') {
+      await resetAllAnchors();
+      needRestart = true; // чтобы цикл перезапустился с новыми якорями
+      await sendTelegram('🔁 Якорные цены сброшены. Цикл будет перезапущен.');
       return;
     }
 
@@ -203,6 +231,7 @@ app.post('/webhook', async (req, res) => {
       if (text.toLowerCase() === 'yes') {
         const token = pendingData.removeToken;
         await removeTokenByAddress(token.address);
+        needRestart = true; // список изменился
         await sendTelegram(`✅ Токен <b>${token.name.toUpperCase()}</b> удалён из отслеживания.`);
       } else {
         await sendTelegram('❌ Удаление отменено.');
@@ -234,8 +263,10 @@ app.post('/webhook', async (req, res) => {
         await sendTelegram('❌ Некорректный процент. Введите число от 1 до 100 или /cancel.');
         return;
       }
-      await updateTokenAlert(pendingData.changeToken.address, percent);
-      await sendTelegram(`🔧 Порог для <b>${pendingData.changeToken.name.toUpperCase()}</b> изменён на <b>${percent}%</b>`);
+      const token = pendingData.changeToken;
+      await updateTokenAlert(token.address, percent);
+      needRestart = true; // процент изменился
+      await sendTelegram(`🔧 Порог для <b>${token.name.toUpperCase()}</b> изменён на <b>${percent}%</b>`);
       userState = null;
       pendingData = {};
       return;
@@ -248,6 +279,7 @@ app.post('/webhook', async (req, res) => {
         return;
       }
       await updateAllAlerts(percent);
+      needRestart = true; // процент изменён для всех
       const count = (await getAllTokens()).length;
       await sendTelegram(`🔧 Процент для всех ${count} токенов изменён на <b>${percent}%</b>`);
       userState = null;
@@ -302,6 +334,7 @@ app.post('/webhook', async (req, res) => {
         address: token.address,
         changeAlert: percent,
       });
+      needRestart = true; // новый токен добавлен
       await sendTelegram(
         `✅ Токен <b>${token.name.toUpperCase()}</b> добавлен!\n\n` +
         `Сеть: ${token.chain}\n` +
@@ -370,7 +403,7 @@ app.post('/webhook', async (req, res) => {
       return;
     }
 
-    // Если команда не распознана
+    // Неизвестная команда
     await sendTelegram('Неизвестная команда. Используйте /help для списка команд.');
 
   } catch (err) {
@@ -437,32 +470,45 @@ async function main() {
     }
 
     for (const token of tokens) {
+      // Проверяем, не требуется ли перезапуск (изменение данных)
+      if (needRestart) {
+        console.log("⚡ Перезапуск цикла по внешнему запросу");
+        break;
+      }
+
       const result = await checkToken(token);
+      // Пауза между запросами
       await new Promise(r => setTimeout(r, 5000));
       if (!result) continue;
 
       const { price, pair, symbol } = result;
 
-      if (token.lastAlertPrice === null || token.lastAlertPrice === undefined) {
-        await updateLastAlertPrice(token.address, price);
+      // Загружаем актуальные данные токена (на случай удаления)
+      const freshToken = await getTokenByAddress(token.address);
+      if (!freshToken) {
+        console.log(`${token.name}: токен удалён во время цикла, пропускаем`);
+        continue;
+      }
+
+      if (freshToken.lastAlertPrice === null || freshToken.lastAlertPrice === undefined) {
+        await updateLastAlertPrice(freshToken.address, price);
         console.log(`📌 ${symbol}: якорная цена установлена на $${price}`);
         continue;
       }
 
-      const anchor = token.lastAlertPrice;
+      const anchor = freshToken.lastAlertPrice;
       const changePct = ((price - anchor) / anchor) * 100;
       console.log(`${symbol}: изменение ${changePct.toFixed(2)}% от последнего алерта`);
 
-      if (Math.abs(changePct) >= token.changeAlert) {
+      if (Math.abs(changePct) >= freshToken.changeAlert) {
         const direction = changePct > 0 ? '🚀' : '🔻';
         const sign = changePct > 0 ? '+' : '';
-        // Формируем HTML-ссылку, экранируя кавычки
         const dexUrl = pair.url || '';
         const message =
           `${direction} <a href="${dexUrl}">${symbol.toUpperCase()}</a> ${sign}${changePct.toFixed(2)}%\n` +
           `Цена: $${formatPrice(price)}`;
         await sendTelegram(message);
-        await updateLastAlertPrice(token.address, price);
+        await updateLastAlertPrice(freshToken.address, price);
         console.log(`🔔 ${symbol}: алерт отправлен, якорь обновлён`);
       }
     }
@@ -475,7 +521,21 @@ async function main() {
     }
   } finally {
     isChecking = false;
+    // Безопасный сброс и возможный немедленный перезапуск
+    const shouldRestart = needRestart;
+    needRestart = false; // сбрасываем ДО запуска нового цикла
+    if (shouldRestart) {
+      console.log("🔄 Запуск нового цикла после перезапуска");
+      setImmediate(() => main());
+    }
   }
+}
+
+// ---------- Планировщик циклов (рекурсивный setTimeout) ----------
+async function scheduleNext() {
+  await main();
+  // Запускаем следующий цикл через 180 секунд после завершения предыдущего
+  setTimeout(scheduleNext, 180000);
 }
 
 // ---------- Запуск HTTP сервера и регистрация webhook ----------
@@ -510,8 +570,8 @@ async function startBot() {
   app.listen(PORT, () => {
     console.log(`🌐 HTTP сервер запущен на порту ${PORT}`);
     registerWebhook();
-    main();
-    setInterval(main, 180000);
+    // Запускаем бесконечный цикл с рекурсивным setTimeout
+    scheduleNext();
   });
 }
 
