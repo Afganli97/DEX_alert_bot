@@ -1,6 +1,6 @@
 // ==============================
-// DEX ALERT BOT с MongoDB (v2.1)
-// Исправлена команда /help и улучшена обработка состояний
+// DEX ALERT BOT с MongoDB (v2.2)
+// Исправлен Markdown алертов, добавлены логи webhook
 // ==============================
 
 console.log("==================================");
@@ -27,8 +27,7 @@ let db;
 let tokensCollection;
 let isChecking = false;
 
-// Состояния ожидания ввода от пользователя
-let userState = null;   // null | 'address' | 'percent' | 'awaiting_remove_select' | ...
+let userState = null;
 let pendingData = {};
 
 // ---------- Подключение к MongoDB ----------
@@ -85,6 +84,11 @@ async function updateLastAlertPrice(address, price) {
   );
 }
 
+// ---------- Функция для безопасного URL в Markdown ----------
+function escapeMarkdownUrl(url) {
+  return url.replace(/\)/g, '%29').replace(/\(/g, '%28');
+}
+
 // ---------- Отправка сообщений в Telegram ----------
 async function sendTelegram(message, parseMode = 'Markdown') {
   const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
@@ -137,10 +141,14 @@ async function fetchTokenInfo(address) {
 
 // ---------- Обработка webhook (сообщения от пользователя) ----------
 app.post('/webhook', async (req, res) => {
-  res.sendStatus(200);
+  res.sendStatus(200); // отвечаем быстро
+  console.log("📨 Webhook received:", JSON.stringify(req.body).slice(0, 200)); // лог первых 200 символов
   try {
     const message = req.body?.message;
-    if (!message || !message.text) return;
+    if (!message || !message.text) {
+      console.log("⚠️ Пустое сообщение или без текста");
+      return;
+    }
     const text = message.text.trim();
     const chatId = message.chat.id.toString();
     if (chatId !== CHAT_ID) {
@@ -148,7 +156,7 @@ app.post('/webhook', async (req, res) => {
       return;
     }
 
-    // ---------- КОМАНДЫ, ДОСТУПНЫЕ ВСЕГДА (сбрасывают состояние) ----------
+    // ---------- КОМАНДЫ, ДОСТУПНЫЕ ВСЕГДА ----------
     if (text === '/start' || text === '/help') {
       userState = null;
       pendingData = {};
@@ -172,8 +180,7 @@ app.post('/webhook', async (req, res) => {
       return;
     }
 
-    // ---------- ОБРАБОТКА СОСТОЯНИЙ (если бот ждёт ввода) ----------
-    // Состояние: ожидание номера для удаления
+    // ---------- ОБРАБОТКА СОСТОЯНИЙ ----------
     if (userState === 'awaiting_remove_select') {
       const num = parseInt(text);
       const tokens = await getAllTokens();
@@ -192,7 +199,6 @@ app.post('/webhook', async (req, res) => {
       return;
     }
 
-    // Состояние: подтверждение удаления
     if (userState === 'awaiting_remove_confirm') {
       if (text.toLowerCase() === 'yes') {
         const token = pendingData.removeToken;
@@ -206,7 +212,6 @@ app.post('/webhook', async (req, res) => {
       return;
     }
 
-    // Состояние: выбор токена для изменения процента
     if (userState === 'awaiting_change_select') {
       const num = parseInt(text);
       const tokens = await getAllTokens();
@@ -223,7 +228,6 @@ app.post('/webhook', async (req, res) => {
       return;
     }
 
-    // Состояние: ввод нового процента для конкретного токена
     if (userState === 'awaiting_change_percent') {
       const percent = parseFloat(text);
       if (isNaN(percent) || percent <= 0 || percent > 100) {
@@ -231,15 +235,12 @@ app.post('/webhook', async (req, res) => {
         return;
       }
       await updateTokenAlert(pendingData.changeToken.address, percent);
-      await sendTelegram(
-        `🔧 Порог для *${pendingData.changeToken.name.toUpperCase()}* изменён на *${percent}%*`
-      );
+      await sendTelegram(`🔧 Порог для *${pendingData.changeToken.name.toUpperCase()}* изменён на *${percent}%*`);
       userState = null;
       pendingData = {};
       return;
     }
 
-    // Состояние: ввод процента для всех токенов
     if (userState === 'awaiting_changeall_percent') {
       const percent = parseFloat(text);
       if (isNaN(percent) || percent <= 0 || percent > 100) {
@@ -254,7 +255,6 @@ app.post('/webhook', async (req, res) => {
       return;
     }
 
-    // Состояние: ожидание адреса при добавлении
     if (userState === 'address') {
       const isValidEvm = /^0x[0-9a-fA-F]{40}$/.test(text);
       const isValidSolana = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(text);
@@ -289,7 +289,6 @@ app.post('/webhook', async (req, res) => {
       return;
     }
 
-    // Состояние: ожидание процента при добавлении
     if (userState === 'percent') {
       const percent = parseFloat(text);
       if (isNaN(percent) || percent <= 0 || percent > 100) {
@@ -313,14 +312,12 @@ app.post('/webhook', async (req, res) => {
       return;
     }
 
-    // ---------- КОМАНДЫ, КОТОРЫЕ РАБОТАЮТ ТОЛЬКО БЕЗ АКТИВНОГО СОСТОЯНИЯ ----------
+    // ---------- КОМАНДЫ БЕЗ АКТИВНОГО СОСТОЯНИЯ ----------
     if (userState) {
-      // Если активно состояние, но команда не /help, /start, /cancel — напоминаем
       await sendTelegram('⏳ Вы находитесь в процессе ввода. Завершите действие или введите /cancel для отмены.');
       return;
     }
 
-    // Команды без состояния
     if (text === '/add') {
       userState = 'address';
       pendingData = {};
@@ -373,7 +370,7 @@ app.post('/webhook', async (req, res) => {
       return;
     }
 
-    // Если сообщение не распознано
+    // Если ничего не подошло
     await sendTelegram('Неизвестная команда. Используйте /help для списка команд.');
 
   } catch (err) {
@@ -441,7 +438,7 @@ async function main() {
 
     for (const token of tokens) {
       const result = await checkToken(token);
-      await new Promise(r => setTimeout(r, 5000)); // пауза между токенами
+      await new Promise(r => setTimeout(r, 5000));
       if (!result) continue;
 
       const { price, pair, symbol } = result;
@@ -459,8 +456,9 @@ async function main() {
       if (Math.abs(changePct) >= token.changeAlert) {
         const direction = changePct > 0 ? '🚀' : '🔻';
         const sign = changePct > 0 ? '+' : '';
+        const escapedUrl = escapeMarkdownUrl(pair.url || '');
         const message =
-          `${direction} [${symbol.toUpperCase()}](${pair.url || ''}) ${sign}${changePct.toFixed(2)}%\n` +
+          `${direction} [${symbol.toUpperCase()}](${escapedUrl}) ${sign}${changePct.toFixed(2)}%\n` +
           `Цена: $${formatPrice(price)}`;
         await sendTelegram(message);
         await updateLastAlertPrice(token.address, price);
@@ -511,8 +509,8 @@ async function startBot() {
   app.listen(PORT, () => {
     console.log(`🌐 HTTP сервер запущен на порту ${PORT}`);
     registerWebhook();
-    main(); // первый запуск проверки
-    setInterval(main, 180000); // каждые 180 секунд
+    main();
+    setInterval(main, 180000);
   });
 }
 
