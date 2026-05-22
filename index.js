@@ -1,5 +1,6 @@
 // ==============================
-// DEX ALERT BOT с MongoDB
+// DEX ALERT BOT с MongoDB (v2.1)
+// Исправлена команда /help и улучшена обработка состояний
 // ==============================
 
 console.log("==================================");
@@ -15,27 +16,27 @@ const AbortController = global.AbortController;
 // ---------- Конфигурация окружения ----------
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const CHAT_ID = process.env.CHAT_ID;
-const MONGO_URI = process.env.MONGO_URI; // строка подключения к базе dex_alert_bot
+const MONGO_URI = process.env.MONGO_URI;
 const PORT = process.env.PORT || 3000;
 
 // ---------- Глобальные переменные ----------
 const app = express();
 app.use(express.json());
 
-let db;                // объект базы данных
-let tokensCollection;  // коллекция tokens
+let db;
+let tokensCollection;
 let isChecking = false;
 
-// Состояния ожидания ввода от пользователя (работает только с одним чатом)
-let userState = null;
-let pendingData = {};  // временные данные между шагами (адрес, токен, и т.д.)
+// Состояния ожидания ввода от пользователя
+let userState = null;   // null | 'address' | 'percent' | 'awaiting_remove_select' | ...
+let pendingData = {};
 
 // ---------- Подключение к MongoDB ----------
 async function connectToMongo() {
   try {
     const client = new MongoClient(MONGO_URI);
     await client.connect();
-    db = client.db(); // база уже указана в URI, можно просто client.db()
+    db = client.db();
     tokensCollection = db.collection('tokens');
     console.log('✅ Подключено к MongoDB, коллекция tokens готова');
   } catch (err) {
@@ -55,11 +56,10 @@ async function tokenExists(address) {
 }
 
 async function addToken(tokenData) {
-  // tokenData: { name, chain, address, changeAlert }
   await tokensCollection.insertOne({
     ...tokenData,
     address: tokenData.address.toLowerCase(),
-    lastAlertPrice: null,  // якорная цена пока не установлена
+    lastAlertPrice: null,
   });
 }
 
@@ -75,10 +75,7 @@ async function updateTokenAlert(address, newPercent) {
 }
 
 async function updateAllAlerts(newPercent) {
-  await tokensCollection.updateMany(
-    {},
-    { $set: { changeAlert: newPercent } }
-  );
+  await tokensCollection.updateMany({}, { $set: { changeAlert: newPercent } });
 }
 
 async function updateLastAlertPrice(address, price) {
@@ -140,7 +137,7 @@ async function fetchTokenInfo(address) {
 
 // ---------- Обработка webhook (сообщения от пользователя) ----------
 app.post('/webhook', async (req, res) => {
-  res.sendStatus(200); // сразу отвечаем Telegram
+  res.sendStatus(200);
   try {
     const message = req.body?.message;
     if (!message || !message.text) return;
@@ -151,7 +148,31 @@ app.post('/webhook', async (req, res) => {
       return;
     }
 
-    // ---------- Обработка глобальных состояний ----------
+    // ---------- КОМАНДЫ, ДОСТУПНЫЕ ВСЕГДА (сбрасывают состояние) ----------
+    if (text === '/start' || text === '/help') {
+      userState = null;
+      pendingData = {};
+      await sendTelegram(
+        '📖 *Команды бота:*\n\n' +
+        '/add — добавить токен для отслеживания\n' +
+        '/remove — удалить токен (выбор из списка, подтверждение)\n' +
+        '/list — показать список отслеживаемых токенов\n' +
+        '/change — изменить процент для одного токена\n' +
+        '/change_all — установить одинаковый процент для всех токенов\n' +
+        '/cancel — отменить текущее действие\n' +
+        '/help — эта справка'
+      );
+      return;
+    }
+
+    if (text === '/cancel') {
+      userState = null;
+      pendingData = {};
+      await sendTelegram('🚫 Текущее действие отменено.');
+      return;
+    }
+
+    // ---------- ОБРАБОТКА СОСТОЯНИЙ (если бот ждёт ввода) ----------
     // Состояние: ожидание номера для удаления
     if (userState === 'awaiting_remove_select') {
       const num = parseInt(text);
@@ -233,23 +254,74 @@ app.post('/webhook', async (req, res) => {
       return;
     }
 
-    // ---------- Команды ----------
-    if (text === '/start' || text === '/help') {
+    // Состояние: ожидание адреса при добавлении
+    if (userState === 'address') {
+      const isValidEvm = /^0x[0-9a-fA-F]{40}$/.test(text);
+      const isValidSolana = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(text);
+      if (!isValidEvm && !isValidSolana) {
+        await sendTelegram(
+          '❌ Некорректный адрес контракта.\n\n' +
+          'EVM-адрес должен быть 0x... (42 символа). Solana-адрес — строка из 32–44 символов.\n' +
+          'Попробуй ещё раз или /cancel.'
+        );
+        return;
+      }
+
+      if (await tokenExists(text)) {
+        await sendTelegram('❌ Токен с таким адресом уже отслеживается.');
+        userState = null;
+        return;
+      }
+
+      await sendTelegram('🔍 Ищу токен на DexScreener...');
+      const tokenInfo = await fetchTokenInfo(text);
+      if (!tokenInfo) {
+        await sendTelegram('❌ Токен не найден на DexScreener. Проверьте адрес или попробуйте позже.');
+        return;
+      }
+
+      pendingData.newToken = tokenInfo;
+      userState = 'percent';
       await sendTelegram(
-        '📖 *Команды бота:*\n\n' +
-        '/add — добавить токен\n' +
-        '/remove — удалить токен (интерактивно)\n' +
-        '/list — список отслеживаемых токенов\n' +
-        '/change — изменить процент для одного токена\n' +
-        '/change_all — установить процент для всех\n' +
-        '/cancel — отменить текущее действие\n' +
-        '/help — эта справка'
+        `✅ Токен найден: *${tokenInfo.name.toUpperCase()}* (${tokenInfo.chain})\n\n` +
+        `Введи процент изменения для алерта (число, например: 10):`
       );
       return;
     }
 
+    // Состояние: ожидание процента при добавлении
+    if (userState === 'percent') {
+      const percent = parseFloat(text);
+      if (isNaN(percent) || percent <= 0 || percent > 100) {
+        await sendTelegram('❌ Некорректный процент. Введите число от 1 до 100 или /cancel.');
+        return;
+      }
+      const token = pendingData.newToken;
+      await addToken({
+        name: token.name,
+        chain: token.chain,
+        address: token.address,
+        changeAlert: percent,
+      });
+      await sendTelegram(
+        `✅ Токен *${token.name.toUpperCase()}* добавлен!\n\n` +
+        `Сеть: ${token.chain}\n` +
+        `Алерт: *${percent}%*`
+      );
+      userState = null;
+      pendingData = {};
+      return;
+    }
+
+    // ---------- КОМАНДЫ, КОТОРЫЕ РАБОТАЮТ ТОЛЬКО БЕЗ АКТИВНОГО СОСТОЯНИЯ ----------
+    if (userState) {
+      // Если активно состояние, но команда не /help, /start, /cancel — напоминаем
+      await sendTelegram('⏳ Вы находитесь в процессе ввода. Завершите действие или введите /cancel для отмены.');
+      return;
+    }
+
+    // Команды без состояния
     if (text === '/add') {
-      // Начинаем процесс добавления: запрос адреса
       userState = 'address';
       pendingData = {};
       await sendTelegram('Введи адрес контракта токена (0x...):');
@@ -301,79 +373,9 @@ app.post('/webhook', async (req, res) => {
       return;
     }
 
-    if (text === '/cancel') {
-      userState = null;
-      pendingData = {};
-      await sendTelegram('🚫 Текущее действие отменено.');
-      return;
-    }
+    // Если сообщение не распознано
+    await sendTelegram('Неизвестная команда. Используйте /help для списка команд.');
 
-    // ---------- Пошаговое добавление токена ----------
-    if (userState === 'address') {
-      // Проверка адреса (Ethereum/BSC: 0x + 40 hex, Solana: base58, но упростим проверку для EVM)
-      const isValidEvm = /^0x[0-9a-fA-F]{40}$/.test(text);
-      const isValidSolana = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(text); // приблизительно
-      if (!isValidEvm && !isValidSolana) {
-        await sendTelegram(
-          '❌ Некорректный адрес контракта.\n\n' +
-          'EVM-адрес должен быть 0x... (42 символа). Solana-адрес — строка из 32–44 символов.\n' +
-          'Попробуй ещё раз или /cancel.'
-        );
-        return;
-      }
-
-      // Проверка, нет ли уже такого токена
-      if (await tokenExists(text)) {
-        await sendTelegram('❌ Токен с таким адресом уже отслеживается.');
-        userState = null;
-        return;
-      }
-
-      await sendTelegram('🔍 Ищу токен на DexScreener...');
-      const tokenInfo = await fetchTokenInfo(text);
-      if (!tokenInfo) {
-        await sendTelegram('❌ Токен не найден на DexScreener. Проверьте адрес или попробуйте позже.');
-        // Оставляем состояние address, чтобы можно было сразу ввести другой адрес
-        return;
-      }
-
-      pendingData.newToken = tokenInfo; // сохраняем {name, chain, address}
-      userState = 'percent';
-      await sendTelegram(
-        `✅ Токен найден: *${tokenInfo.name.toUpperCase()}* (${tokenInfo.chain})\n\n` +
-        `Введи процент изменения для алерта (число, например: 10):`
-      );
-      return;
-    }
-
-    if (userState === 'percent') {
-      const percent = parseFloat(text);
-      if (isNaN(percent) || percent <= 0 || percent > 100) {
-        await sendTelegram('❌ Некорректный процент. Введите число от 1 до 100 или /cancel.');
-        return;
-      }
-      // Добавляем токен в базу
-      const token = pendingData.newToken;
-      await addToken({
-        name: token.name,
-        chain: token.chain,
-        address: token.address,
-        changeAlert: percent,
-      });
-      await sendTelegram(
-        `✅ Токен *${token.name.toUpperCase()}* добавлен!\n\n` +
-        `Сеть: ${token.chain}\n` +
-        `Алерт: *${percent}%*`
-      );
-      userState = null;
-      pendingData = {};
-      return;
-    }
-
-    // Если сообщение не попало ни под одно состояние/команду
-    if (userState) {
-      await sendTelegram('Неизвестный ввод. Ожидается действие согласно инструкции. /cancel для отмены.');
-    }
   } catch (err) {
     console.error("❌ Webhook handler error:", err);
   }
@@ -439,13 +441,11 @@ async function main() {
 
     for (const token of tokens) {
       const result = await checkToken(token);
-      // Пауза между токенами, чтобы не заспамить DexScreener
-      await new Promise(r => setTimeout(r, 5000));
+      await new Promise(r => setTimeout(r, 5000)); // пауза между токенами
       if (!result) continue;
 
       const { price, pair, symbol } = result;
 
-      // Если ещё нет якорной цены (первый запуск или новый токен)
       if (token.lastAlertPrice === null || token.lastAlertPrice === undefined) {
         await updateLastAlertPrice(token.address, price);
         console.log(`📌 ${symbol}: якорная цена установлена на $${price}`);
@@ -463,7 +463,6 @@ async function main() {
           `${direction} [${symbol.toUpperCase()}](${pair.url || ''}) ${sign}${changePct.toFixed(2)}%\n` +
           `Цена: $${formatPrice(price)}`;
         await sendTelegram(message);
-        // Обновляем якорную цену только после отправки уведомления
         await updateLastAlertPrice(token.address, price);
         console.log(`🔔 ${symbol}: алерт отправлен, якорь обновлён`);
       }
@@ -512,10 +511,8 @@ async function startBot() {
   app.listen(PORT, () => {
     console.log(`🌐 HTTP сервер запущен на порту ${PORT}`);
     registerWebhook();
-    // Первый запуск проверки
-    main();
-    // Запуск цикла каждые 180 секунд
-    setInterval(main, 180000);
+    main(); // первый запуск проверки
+    setInterval(main, 180000); // каждые 180 секунд
   });
 }
 
