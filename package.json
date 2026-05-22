@@ -1,13 +1,13 @@
 {
   "name": "dex-alerts-bot",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
     "express": "^4.19.2",
-    "node-fetch": "2.6.9",
-    "node-cron": "3.0.3"
+    "mongodb": "^5.9.0",
+    "node-fetch": "2.6.9"
   }
 }
