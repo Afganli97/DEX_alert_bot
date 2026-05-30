@@ -1,8 +1,7 @@
 // ==============================
-// DEX ALERT BOT (Polling версия для Linux-сервера)
+// DEX ALERT BOT (Polling версия со встроенным fetch)
 // ==============================
 require('dotenv').config();
-const fetch = require('node-fetch');
 const { MongoClient } = require('mongodb');
 
 // ---------- Конфигурация ----------
@@ -58,7 +57,7 @@ async function resetAllAnchors() {
   await tokensCollection.updateMany({}, { $set: { lastAlertPrice: null } });
 }
 
-// ---------- Отправка сообщений ----------
+// ---------- Отправка сообщений (используем глобальный fetch) ----------
 async function sendTelegram(msg) {
   try {
     await fetch(`${TELEGRAM_API}/sendMessage`, {
@@ -86,14 +85,13 @@ async function fetchTokenInfo(address) {
   } catch (e) { return null; }
 }
 
-// ---------- Обработка сообщений (все команды и состояния) ----------
+// ---------- Обработка сообщений ----------
 async function handleMessage(msg) {
   const text = msg.text?.trim();
   if (!text) return;
   const chatId = msg.chat.id.toString();
   if (chatId !== CHAT_ID) return;
 
-  // Команды, доступные всегда
   if (text === '/start' || text === '/help') {
     userState = null; pendingData = {};
     await sendTelegram(
@@ -112,7 +110,6 @@ async function handleMessage(msg) {
   if (text === '/cancel') { userState = null; pendingData = {}; await sendTelegram('🚫 Текущее действие отменено.'); return; }
   if (text === '/reset_anchors') { await resetAllAnchors(); needRestart = true; await sendTelegram('🔁 Якорные цены сброшены. Цикл будет перезапущен.'); return; }
 
-  // Состояния
   if (userState === 'awaiting_remove_select') {
     const num = parseInt(text);
     const tokens = await getAllTokens();
@@ -193,7 +190,6 @@ async function handleMessage(msg) {
     userState = null; pendingData = {}; return;
   }
 
-  // Команды без состояния
   if (userState) { await sendTelegram('⏳ Вы находитесь в процессе ввода. Завершите действие или введите /cancel для отмены.'); return; }
 
   if (text === '/add') { userState = 'address'; pendingData = {}; await sendTelegram('Введи адрес контракта токена (0x...):'); return; }
@@ -312,13 +308,16 @@ async function scheduleNext() {
   setTimeout(scheduleNext, 180000);
 }
 
-// ---------- Long Polling ----------
+// ---------- Long Polling со встроенным fetch и таймаутом ----------
 async function startPolling() {
   let offset = 0;
   console.log("🤖 Long polling started");
   while (true) {
     try {
-      const res = await fetch(`${TELEGRAM_API}/getUpdates?offset=${offset}&timeout=30`);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // обрываем fetch через 15 секунд, если нет ответа
+      const res = await fetch(`${TELEGRAM_API}/getUpdates?offset=${offset}&timeout=10`, { signal: controller.signal });
+      clearTimeout(timeoutId);
       const data = await res.json();
       if (data.ok && data.result.length > 0) {
         for (const upd of data.result) {
@@ -327,8 +326,13 @@ async function startPolling() {
         }
       }
     } catch (e) {
-      console.error('Polling error:', e);
-      await new Promise(r => setTimeout(r, 5000));
+      if (e.name === 'AbortError') {
+        // Таймаут polling — это нормально, продолжаем
+        console.log('Polling timeout, restarting...');
+      } else {
+        console.error('Polling error:', e);
+        await new Promise(r => setTimeout(r, 5000));
+      }
     }
   }
 }
@@ -336,6 +340,6 @@ async function startPolling() {
 // ---------- Старт ----------
 (async () => {
   await connectToMongo();
-  scheduleNext(); // цикл проверки цен с интервалом
-  startPolling(); // приём сообщений
+  scheduleNext();
+  startPolling();
 })();
