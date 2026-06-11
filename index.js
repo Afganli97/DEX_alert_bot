@@ -336,7 +336,10 @@ async function handleMessage(msg) {
   if (text === '/list') {
     const tokens = await getAllTokens();
     if (tokens.length === 0) { await sendTelegram('📭 Список токенов пуст.'); return; }
-    const list = tokens.map((t, i) => `${i + 1}. <b>${escapeHtml(t.name.toUpperCase())}</b> (${escapeHtml(t.chain)})\n   Адрес: <code>${escapeHtml(t.address)}</code>\n   Алерт: ${t.changeAlert}%`).join('\n\n');
+    // Формируем список с именами в виде ссылок на DexScreener
+    const list = tokens.map((t, i) =>
+      `${i + 1}. <a href="https://dexscreener.com/${escapeHtml(t.chain)}/${escapeHtml(t.address)}">${escapeHtml(t.name.toUpperCase())}</a> (${escapeHtml(t.chain)})\n   Адрес: <code>${escapeHtml(t.address)}</code>\n   Алерт: ${t.changeAlert}%`
+    ).join('\n\n');
     await sendTelegram(`📋 <b>Отслеживаемые токены:</b>\n\n${list}`);
     return;
   }
@@ -411,7 +414,6 @@ async function main() {
           const data = priceData[addr];
           if (!data) continue;
 
-          // Используем свежий токен из Map, но если его нет (удалён) — пропускаем
           const freshToken = tokenMap.get(addr);
           if (!freshToken) continue;
 
@@ -424,7 +426,6 @@ async function main() {
           }
 
           const anchor = freshToken.lastAlertPrice;
-          // Защита от деления на ноль
           if (!anchor || anchor === 0) {
             await updateLastAlertPrice(freshToken.address, price);
             console.log(`📌 ${symbol}: сброшен нулевой якорь, установлен на $${price}`);
@@ -513,12 +514,10 @@ async function startPolling() {
 function gracefulShutdown() {
   console.log('Получен сигнал завершения, ожидаем завершения текущего цикла...');
   shuttingDown = true;
-  // Даём немного времени, чтобы текущий main завершился
   const forceExitTimeout = setTimeout(() => {
     console.error('Принудительный выход по таймауту');
     process.exit(0);
   }, 15000);
-  // Проверяем, не завершился ли main
   const checkInterval = setInterval(() => {
     if (!isChecking) {
       clearTimeout(forceExitTimeout);
