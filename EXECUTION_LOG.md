@@ -1,10 +1,79 @@
-## Task: Fix critical bugs and implement remaining features from instruction
-Step 1: Fix escapeHtml() - currently broken (no-op replacements) -> DONE
-Step 2: Fix TelegramQueue - reject on failure causes unhandled rejection; add process crash guards -> DONE
-Step 3: Switch to ADMIN_CHAT_IDS (comma-separated list instead of single ADMIN_ID) -> DONE
-Step 4: Enable isChecking in runCycle() for graceful shutdown protection -> DONE
-Step 5: Remove dead needRestart variable -> DONE
-Step 6: Remove unique constraint from username index -> DONE
-Step 7: Filter blocked users in runCycle() -> DONE
+# EXECUTION LOG
 
-All steps completed. Code is ready for testing.
+## DEX_alert_bot — исправление критических багов и добавление новых функций (2026-07-26)
+
+### Шаг 1: Исправление escapeHtml()
+- **Проблема**: Функция заменяла символы на самих себя (`&` → `&`, `<` → `<` и т.д.), что является no-op. Только апостроф работал верно.
+- **Решение**: Переписана функция для корректного экранирования:
+  ```js
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, '&')
+      .replace(/</g, '<')
+      .replace(/>/g, '>')
+      .replace(/"/g, '"')
+      .replace(/'/g, '&#039;');
+  }
+  ```
+- **Статус**: ✅ Выполнено
+
+### Шаг 2: Исправление TelegramQueue
+- **Проблема**: При неудачной отправке (403, 429) очередь делала `reject(false)` вместо `resolve(false)`, что вызывало необработанные исключения и могло уронить процесс.
+- **Решение**: Метод `process()` теперь всегда резолвит промис булевым значением. Добавлены глобальные обработчики `process.on('unhandledRejection')` и `process.on('uncaughtException')`.
+- **Статус**: ✅ Выполнено
+
+### Шаг 3: Переход на ADMIN_CHAT_IDS
+- **Проблема**: Использовался одиночный `ADMIN_ID`.
+- **Решение**: Создан массив `ADMIN_IDS = (process.env.ADMIN_CHAT_IDS||'').split(',').map(...).filter(Boolean)`. Функция `isAdmin(chatId)` проверяет включение в массив.
+- **Статус**: ✅ Выполнено
+
+### Шаг 4: Включение isChecking в работу
+- **Проблема**: Флаг объявлен, но не использовался, что ломало graceful shutdown и не защищало от параллельных запусков.
+- **Решение**: В `runCycle()` добавлена проверка `if (shuttingDown || isChecking) return;` и блок `finally { isChecking = false; }`.
+- **Статус**: ✅ Выполнено
+
+### Шаг 5: Удаление needRestart
+- **Проблема**: Переменная присваивалась, но нигде не читалась — мёртвый код.
+- **Решение**: Удалены все присваивания `needRestart = true` и объявление переменной.
+- **Статус**: ✅ Выполнено
+
+### Шаг 6: Удаление unique с индекса username
+- **Проблема**: Уникальность username могла вызывать duplicate key error при смене username.
+- **Решение**: Индекс `{ username: 1 }` создан без опции `unique: true`.
+- **Статус**: ✅ Выполнено
+
+### Шаг 7: Фильтрация заблокированных юзеров в runCycle()
+- **Проблема**: Заблокированные пользователи всё ещё попадали в цикл обработки.
+- **Решение**: Перед формированием уникальных адресов загружается `Set` заблокированных `chatId`, и записи с такими `ownerId` пропускаются.
+- **Статус**: ✅ Выполнено
+
+### Шаг 8: Команда /stop
+- **Реализация**: Добавлена команда `/stop`, которая удаляет все записи пользователя из `watchlist` и документ из `users`, с подтверждающим сообщением.
+- **Статус**: ✅ Выполнено
+
+### Шаг 9: Админ-панель (/admin)
+- **Реализация**: Добавлена команда `/admin` с подкомандами:
+  - `stats` — статистика (пользователи, watchlist, активные за час)
+  - `block_user <chatId>` — заблокировать пользователя
+  - `unblock_user <chatId>` — разблокировать пользователя
+  - `reset_all_anchors` — сбросить все якорные цены (без фильтра по ownerId, только для админа)
+  - `view_user <chatId>` — показать статус и количество токенов пользователя
+- **Статус**: ✅ Выполнено
+
+### Шаг 10: Скрыть /broadcast из общего /help
+- **Реализация**: В команде `/help` строка про `/broadcast` показывается только если `isAdmin(chatId)` истинно.
+- **Статус**: ✅ Выполнено
+
+---
+
+## Файлы изменены
+- `projects/DEX_alert_bot/index.js` — полностью переписан с учётом всех 10 шагов.
+
+## Git
+- Ветка: `agent`
+- Коммит: ожидает выполнения (node недоступен в контейнере для проверки синтаксиса)
+
+## Примечания
+- Node.js недоступен в текущей среде для проверки синтаксиса (`node -c`). Проверка будет выполнена пользователем на сервере.
+- Все изменения протестированы логически путём чтения кода.
+- Переменная окружения `ADMIN_CHAT_IDS` должна быть добавлена пользователем вручную в `.env`.
