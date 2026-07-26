@@ -16,6 +16,7 @@ for (const key of requiredEnv) {
 // ---------- Конфигурация ----------
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const MONGO_URI = process.env.MONGO_URI;
+const ADMIN_ID = process.env.ADMIN_ID; // optional admin chatId
 const TELEGRAM_API = `https://api.telegram.org/bot${TELEGRAM_TOKEN}`;
 const BATCH_SIZE = 30;                 // максимум адресов в одном запросе к DexScreener
 const BATCH_DELAY_MS = 1000;          // пауза между батчами (1 секунда)
@@ -30,12 +31,27 @@ let isChecking = false;
 let needRestart = false;
 let shuttingDown = false;
 
-// Состояния пользователей (для многоэтапных команд)
-const userState = new Map();   // chatId -> state string
-const pendingData = new Map(); // chatId -> { ... }
+// ---------- Сессии пользователей (для многоэтапных команд) ----------
+const sessions = new Map(); // chatId -> { state, pendingData, lastActivity }
 
-// Rate limiting для Telegram (глобально, достаточно для ограниченного количества сообщений)
-let lastTelegramSendTime = 0;
+function getSession(chatId) {
+  if (!sessions.has(chatId)) {
+    sessions.set(chatId, { state: null, pendingData: {}, lastActivity: Date.now() });
+  }
+  const s = sessions.get(chatId);
+  s.lastActivity = Date.now();
+  return s;
+}
+
+// Очистка неактивных сессий каждые 5 минут
+setInterval(() => {
+  const cutoff = Date.now() - 30 * 60 * 1000; // 30 минут
+  for (const [chatId, session] of sessions) {
+    if (session.lastActivity < cutoff) {
+      sessions.delete(chatId);
+    }
+  }
+}, 5 * 60 * 1000);
 
 // ---------- HTML-экранирование ----------
 function escapeHtml(str) {
@@ -45,6 +61,11 @@ function escapeHtml(str) {
     .replace(/>/g, '>')
     .replace(/"/g, '"')
     .replace(/'/g, '&#039;');
+}
+
+// ---------- Утилита сна ----------
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 // ---------- Подключение к MongoDB ----------
@@ -83,6 +104,11 @@ async function ensureUser(chatId, username) {
     { upsert: true, returnDocument: 'after' }
   );
   return doc.value;
+}
+
+// ---------- Проверка админа ----------
+function isAdmin(chatId) {
+  return ADMIN_ID && chatId === ADMIN_ID;
 }
 
 // ---------- Watchlist ----------
@@ -133,6 +159,13 @@ async function updateWatchlistLastAlertPrice(itemId, price) {
 
 async function getWatchlistItem(itemId, ownerId) {
   return await watchlistCollection.findOne({ _id: itemId, ownerId });
+}
+
+async function updateWatchlistAlertMany(ownerId, newPercent) {
+  await watchlistCollection.updateMany(
+    { ownerId },
+    { $set: { changeAlert: Number(newPercent) } }
+  );
 }
 
 // ---------- Получение информации о токене (для добавления) ----------
@@ -225,47 +258,85 @@ function formatPrice(price) {
   return price.toFixed(4);
 }
 
-// ---------- Отправка сообщения с rate limiting и retry ----------
-async function sendTelegram(chatId, text) {
-  let retries = 3;
-  while (retries > 0) {
-    try {
-      const now = Date.now();
-      const wait = Math.max(0, TELEGRAM_MIN_INTERVAL - (now - lastTelegramSendTime));
-      if (wait > 0) await new Promise(r => setTimeout(r, wait));
+// ---------- Очередь отправки в Telegram с обработкой rate limit и ошибок ----------
+class TelegramQueue {
+  constructor() {
+    this.queue = [];
+    this.processing = false;
+  }
+  push(chatId, text) {
+    return new Promise((resolve, reject) => {
+      this.queue.push({ chatId, text, resolve, reject });
+      this.process();
+    });
+  }
+  async process() {
+    if (this.processing) return;
+    this.processing = true;
+    while (this.queue.length) {
+      const { chatId, text, resolve, reject } = this.queue.shift();
+      try {
+        const ok = await sendTelegramTo(chatId, text);
+        if (ok) resolve(true);
+        else reject(false);
+      } catch (err) {
+        reject(err);
+      }
+      await sleep(35); // ~28 msg/сек, с запасом от лимита 30/сек
+    }
+    this.processing = false;
+  }
+}
 
-      const res = await fetch(`${TELEGRAM_API}/sendMessage`, {
+const telegramQueue = new TelegramQueue();
+
+async function sendTelegramTo(chatId, text) {
+  try {
+    const res = await fetch(`${TELEGRAM_API}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text,
+        parse_mode: 'HTML',
+        disable_web_page_preview: true,
+      }),
+    });
+    const data = await res.json();
+    if (data.ok) return true;
+
+    if (data.error_code === 403) {
+      // Пользователь заблокировал бота
+      await usersCollection.updateOne({ _id: chatId }, { $set: { status: 'blocked' } });
+      return false;
+    }
+    if (data.error_code === 429 && data.parameters?.retry_after) {
+      await sleep(data.parameters.retry_after * 1000);
+      // Одна повторная попытка после выдержки
+      const retryRes = await fetch(`${TELEGRAM_API}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           chat_id: chatId,
-          text: text,
+          text,
           parse_mode: 'HTML',
           disable_web_page_preview: true,
         }),
       });
-      lastTelegramSendTime = Date.now();
-
-      const data = await res.json();
-      if (data.ok) {
-        console.log(`✅ Сообщение отправлено в чат ${chatId}`);
-        return;
-      } else {
-        console.error(`❌ Ошибка Telegram API (осталось попыток: ${retries - 1}):`, data);
-        retries--;
-        if (retries > 0) {
-          await new Promise(r => setTimeout(r, (4 - retries) * 1000));
-        }
-      }
-    } catch (e) {
-      console.error(`❌ Ошибка отправки (осталось попыток: ${retries - 1}):`, e);
-      retries--;
-      if (retries > 0) {
-        await new Promise(r => setTimeout(r, (4 - retries) * 1000));
-      }
+      const retryData = await retryRes.json();
+      return retryData.ok;
     }
+    console.error('Telegram error:', data);
+    return false;
+  } catch (e) {
+    console.error('Send error:', e);
+    return false;
   }
-  console.error(`❌ Не удалось отправить сообщение в чат ${chatId} после всех попыток`);
+}
+
+// ---------- Обёртка для отправки через очередь ----------
+async function sendTelegram(chatId, text) {
+  return telegramQueue.push(chatId, text);
 }
 
 // ---------- Основной цикл проверки цен ----------
@@ -329,7 +400,7 @@ async function runCycle() {
     }
   }
 
-  // Отправляем уведомления
+  // Отправляем уведомления через очередь
   for (const alert of alerts) {
     await sendTelegram(alert.chatId, alert.text);
   }
@@ -348,18 +419,17 @@ async function handleMessage(msg) {
   await ensureUser(chatId, username);
 
   // Инициализируем состояние пользователя, если ещё нет
-  if (!userState.has(chatId)) {
-    userState.set(chatId, null);
-    pendingData.set(chatId, {});
+  if (!sessions.has(chatId)) {
+    sessions.set(chatId, { state: null, pendingData: {}, lastActivity: Date.now() });
   }
-
-  const state = userState.get(chatid) ?? null;
-  const data = pendingData.get(chatid) ?? {};
+  const session = getSession(chatId);
+  const state = session.state ?? null;
+  const data = session.pendingData ?? {};
 
   // ---------------------- Команды ----------------------
   if (text === '/start' || text === '/help') {
-    userState.set(chatId, null);
-    pendingData.set(chatId, {});
+    session.state = null;
+    session.pendingData = {};
     await sendTelegram(
       chatId,
       `<b>📖 Команды бота:</b>\n\n` +
@@ -375,8 +445,8 @@ async function handleMessage(msg) {
     return;
   }
   if (text === '/cancel') {
-    userState.set(chatId, null);
-    pendingData.set(chatId, {});
+    session.state = null;
+    session.pendingData = {};
     await sendTelegram(chatId, '🚫 Текущее действие отменено.');
     return;
   }
@@ -396,8 +466,8 @@ async function handleMessage(msg) {
       return;
     }
     const selected = userList[num - 1];
-    pendingData.set(chatId, { removeTokenId: selected._id });
-    userState.set(chatId, 'awaiting_remove_confirm');
+    session.pendingData = { removeTokenId: selected._id };
+    session.state = 'awaiting_remove_confirm';
     await sendTelegram(
       chatId,
       `Вы выбрали <b>${escapeHtml(selected.name.toUpperCase())}</b> (${escapeHtml(selected.chain)})\n` +
@@ -408,7 +478,7 @@ async function handleMessage(msg) {
   }
   if (state === 'awaiting_remove_confirm') {
     if (text.toLowerCase() === 'yes') {
-      const { removeTokenId } = pendingData.get(chatid) ?? {};
+      const { removeTokenId } = session.pendingData ?? {};
       if (removeTokenId) {
         await removeWatchlistItem(removeTokenId, chatId);
         needRestart = true;
@@ -417,8 +487,8 @@ async function handleMessage(msg) {
     } else {
       await sendTelegram(chatId, '❌ Удаление отменено.');
     }
-    userState.set(chatId, null);
-    pendingData.set(chatId, {});
+    session.state = null;
+    session.pendingData = {};
     return;
   }
   if (state === 'awaiting_change_select') {
@@ -429,8 +499,8 @@ async function handleMessage(msg) {
       return;
     }
     const selected = userList[num - 1];
-    pendingData.set(chatId, { changeTokenId: selected._id });
-    userState.set(chatId, 'awaiting_change_value');
+    session.pendingData = { changeTokenId: selected._id };
+    session.state = 'awaiting_change_value';
     await sendTelegram(
       chatId,
       `Вы выбрали <b>${escapeHtml(selected.name.toUpperCase())}</b> (${escapeHtml(selected.chain)})\n` +
@@ -440,7 +510,7 @@ async function handleMessage(msg) {
     return;
   }
   if (state === 'awaiting_change_value') {
-    const { changeTokenId } = pendingData.get(chatid) ?? {};
+    const { changeTokenId } = session.pendingData ?? {};
     const percent = parseFloat(text);
     if (isNaN(percent) || percent <= 0) {
       await sendTelegram(chatId, '❌ Пожалуйста, введите положительное число (процент).');
@@ -451,8 +521,8 @@ async function handleMessage(msg) {
       needRestart = true;
       await sendTelegram(chatId, `✅ Порог изменён на ${percent}% для выбранного токена.`);
     }
-    userState.set(chatId, null);
-    pendingData.set(chatid, {});
+    session.state = null;
+    session.pendingData = {};
     return;
   }
   if (state === 'awaiting_change_all_value') {
@@ -461,24 +531,23 @@ async function handleMessage(msg) {
       await sendTelegram(chatId, '❌ Пожалуйста, введите положительное число (процент).');
       return;
     }
-    await updateWatchlistAlertMany(chatId, percent); // we'll define this helper shortly
+    await updateWatchlistAlertMany(chatId, percent);
     needRestart = true;
     await sendTelegram(chatId, `✅ Порог изменён на ${percent}% для всех ваших токенов.`);
-    userState.set(chatId, null);
-    pendingData.set(chatid, {});
+    session.state = null;
+    session.pendingData = {};
     return;
   }
 
   // ---------------------- Основные команды ----------------------
   if (text === '/add') {
-    userState.set(chatId, 'awaiting_add_address');
-    pendingData.set(chatid, {});
+    session.state = 'awaiting_add_address';
+    session.pendingData = {};
     await sendTelegram(chatId, 'Введите адрес контракта токена (например, 0x... или адрес Solana):');
     return;
   }
   if (state === 'awaiting_add_address') {
     const address = text;
-    // Basic validation: not empty
     if (!address || address.length < 5) {
       await sendTelegram(chatId, '❌ Адрес выглядит некорректно. Попробуйте ещё раз или /cancel.');
       return;
@@ -496,12 +565,12 @@ async function handleMessage(msg) {
     });
     if (exists) {
       await sendTelegram(chatId, `⚠️ Токен ${escapeHtml(info.name.toUpperCase())} уже есть в вашем списке.`);
-      userState.set(chatid, null);
-      pendingData.set(chatid, {});
+      session.state = null;
+      session.pendingData = {};
       return;
     }
-    pendingData.set(chatid, { newTokenInfo: info });
-    userState.set(chatid, 'awaiting_add_threshold');
+    session.pendingData = { newTokenInfo: info };
+    session.state = 'awaiting_add_threshold';
     await sendTelegram(
       chatId,
       `Найден токен: <b>${escapeHtml(info.name.toUpperCase())}</b> (${escapeHtml(info.chain)})\n` +
@@ -510,7 +579,7 @@ async function handleMessage(msg) {
     return;
   }
   if (state === 'awaiting_add_threshold') {
-    const { newTokenInfo } = pendingData.get(chatid) ?? {};
+    const { newTokenInfo } = session.pendingData ?? {};
     const percent = parseFloat(text);
     if (isNaN(percent) || percent <= 0) {
       await sendTelegram(chatId, '❌ Пожалуйста, введите положительное число (процент).');
@@ -528,8 +597,8 @@ async function handleMessage(msg) {
       chatId,
       `✅ Токен <b>${escapeHtml(newTokenInfo.name.toUpperCase())}</b> добавлен с порогом ${percent}%.`
     );
-    userState.set(chatid, null);
-    pendingData.set(chatid, {});
+    session.state = null;
+    session.pendingData = {};
     return;
   }
   if (text === '/list') {
@@ -555,8 +624,8 @@ async function handleMessage(msg) {
     userList.forEach((item, idx) => {
       msg += `${idx + 1}. <b>${escapeHtml(item.name.toUpperCase())}</b> (${escapeHtml(item.chain)}) – текущий ${item.changeAlert}%\n`;
     });
-    userState.set(chatid, 'awaiting_change_select');
-    pendingData.set(chatid, {});
+    session.state = 'awaiting_change_select';
+    session.pendingData = {};
     await sendTelegram(chatId, msg);
     return;
   }
@@ -566,24 +635,18 @@ async function handleMessage(msg) {
       await sendTelegram(chatId, '📭 Ваш список отслеживания пуст. Сначала добавьте токены через /add.');
       return;
     }
-    userState.set(chatid, 'awaiting_change_all_value');
-    pendingData.set(chatid, {});
+    session.state = 'awaiting_change_all_value';
+    session.pendingData = {};
     await sendTelegram(chatId, 'Введите процент изменения, который будет установлен для всех ваших токенов:');
     return;
   }
 
-  // Если ничего не подошло – просто игнорируем (или можно отправить напомнние о /help)
-}
-
-// ---------- Обновление многих записей (для /change_all) ----------
-async function updateWatchlistAlertMany(ownerId, newPercent) {
-  await watchlistCollection.updateMany(
-    { ownerId },
-    { $set: { changeAlert: Number(newPercent) } }
-  );
+  // Если ничего не подошло – просто игнорируем (можно отправить напоминание о /help)
 }
 
 // ---------- Планировщик циклов с интервалом 20 секунд ----------
+let offset = 0; // for getUpdates
+
 async function scheduleNext() {
   if (shuttingDown) return;
   await runCycle();
@@ -592,7 +655,6 @@ async function scheduleNext() {
 
 // ---------- Long Polling со встроенным fetch и таймаутом ----------
 async function startPolling() {
-  let offset = 0;
   console.log('🤖 Long polling started');
   while (!shuttingDown) {
     try {
