@@ -14,13 +14,15 @@ Items to implement (code-level only):
 10. Update /help text to match new functionality
 
 ## Steps:
-1. Fix `ensureUser` duplicate $setOnInsert bug
-2. Fix `updateWatchlistLastAlertPrice` to include ownerId filter
-3. Add `/broadcast` command with admin guard
-4. Add `/delete_my_data` command
-5. Add `/privacy` command
-6. Add rate limiting (commandTimestamps Map + isRateLimited function)
-7. Add token count limit check before adding a token
-8. Update help messages
-9. Update /start response with registration welcome text per plan section 4
-10. Commit changes
+1. Fix `ensureUser` duplicate $setOnInsert bug ✅
+2. Fix `updateWatchlistLastAlertPrice` to include ownerId filter ✅
+3. Add `/broadcast` command with admin guard ✅
+4. Add `/delete_my_data` command ✅
+5. Add `/privacy` command ✅
+6. Add rate limiting (commandTimestamps Map + isRateLimited function) ✅
+7. Add token count limit check before adding a token ✅
+8. Update help messages ✅
+9. Update /start response with registration welcome text per plan section 4 ✅
+10. Commit changes ✅
+
+**Status: COMPLETE** — all 10 steps implemented and committed as b50b487.
