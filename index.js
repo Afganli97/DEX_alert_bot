@@ -53,6 +53,16 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000);
 
+// ---------- Rate limiting for commands ----------
+const commandTimestamps = new Map();
+function isRateLimited(chatId, maxPerMinute = 10) {
+  const now = Date.now();
+  const arr = (commandTimestamps.get(chatId) || []).filter(t => now - t < 60000);
+  arr.push(now);
+  commandTimestamps.set(chatId, arr);
+  return arr.length > maxPerMinute;
+}
+
 // ---------- HTML-экранирование ----------
 function escapeHtml(str) {
   return String(str)
@@ -98,8 +108,7 @@ async function ensureUser(chatId, username) {
         maxTokens: 20,
         lastActivityAt: new Date(),
       },
-      $set: { lastActivityAt: new Date() },
-      $setOnInsert: { username: username || null },
+      $set: { lastActivityAt: new Date(), username: username || null },
     },
     { upsert: true, returnDocument: 'after' }
   );
@@ -121,11 +130,12 @@ async function getUserWatchlist(chatId) {
 }
 
 async function addWatchlistItem(ownerId, chain, address, name, changeAlert = 10) {
+  const trimmedName = (name || '').slice(0, 30);
   await watchlistCollection.insertOne({
     ownerId,
     chain: chain.toLowerCase(),
     address: address.toLowerCase(),
-    name: name || '',
+    name: trimmedName,
     changeAlert: Number(changeAlert),
     lastAlertPrice: null,
     createdAt: new Date(),
@@ -150,9 +160,9 @@ async function resetWatchlistAnchors(ownerId) {
   );
 }
 
-async function updateWatchlistLastAlertPrice(itemId, price) {
+async function updateWatchlistLastAlertPrice(itemId, ownerId, price) {
   await watchlistCollection.updateOne(
-    { _id: itemId },
+    { _id: itemId, ownerId },
     { $set: { lastAlertPrice: price } }
   );
 }
@@ -379,7 +389,7 @@ async function runCycle() {
 
     // Если якорная цена не установлена – сохраняем текущую как якорь и пропускаем алерт
     if (item.lastAlertPrice == null) {
-      await updateWatchlistLastAlertPrice(item._id, cached.price);
+      await updateWatchlistLastAlertPrice(item._id, item.ownerId, cached.price);
       continue;
     }
 
@@ -396,7 +406,7 @@ async function runCycle() {
         itemId: item._id,
       });
       // Обновляем якорную price после отправки алерта
-      await updateWatchlistLastAlertPrice(item._id, cached.price);
+      await updateWatchlistLastAlertPrice(item._id, item.ownerId, cached.price);
     }
   }
 
@@ -408,240 +418,311 @@ async function runCycle() {
 
 // ---------- Обработка сообщений ----------
 async function handleMessage(msg) {
-  const chatId = msg.chat.id.toString();
-  const from = msg.from;
-  const username = from.username || null;
-  const text = msg.text?.trim();
+  try {
+    const chatId = msg.chat.id.toString();
+    const from = msg.from;
+    const username = from.username || null;
+    const text = msg.text?.trim();
 
-  if (!text) return;
+    if (!text) return;
 
-  // Обновляем активность пользователя
-  await ensureUser(chatId, username);
+    // Обновляем активность пользователя
+    await ensureUser(chatId, username);
 
-  // Инициализируем состояние пользователя, если ещё нет
-  if (!sessions.has(chatId)) {
-    sessions.set(chatId, { state: null, pendingData: {}, lastActivity: Date.now() });
-  }
-  const session = getSession(chatId);
-  const state = session.state ?? null;
-  const data = session.pendingData ?? {};
-
-  // ---------------------- Команды ----------------------
-  if (text === '/start' || text === '/help') {
-    session.state = null;
-    session.pendingData = {};
-    await sendTelegram(
-      chatId,
-      `<b>📖 Команды бота:</b>\n\n` +
-        '/add — добавить токен\n' +
-        '/remove — удалить токен (выбор из списка, подтверждение)\n' +
-        '/list — показать ваш список отслеживаемых токенов\n' +
-        '/change — изменить процент для одного токена\n' +
-        '/change_all — установить одинаковый процент для всех ваших токенов\n' +
-        '/reset_anchors — сбросить якорные цены ваших токенов\n' +
-        '/cancel — отменить текущее действие\n' +
-        '/help — эта справка'
-    );
-    return;
-  }
-  if (text === '/cancel') {
-    session.state = null;
-    session.pendingData = {};
-    await sendTelegram(chatId, '🚫 Текущее действие отменено.');
-    return;
-  }
-  if (text === '/reset_anchors') {
-    await resetWatchlistAnchors(chatId);
-    needRestart = true;
-    await sendTelegram(chatId, '🔁 Якорные цены ваших токенов сброшены. Цикл будет перезапущен.');
-    return;
-  }
-
-  // ---------------------- Состояния ----------------------
-  if (state === 'awaiting_remove_select') {
-    const num = parseInt(text);
-    const userList = await getUserWatchlist(chatId);
-    if (isNaN(num) || num < 1 || num > userList.length) {
-      await sendTelegram(chatId, '❌ Введите правильный номер токена из списка или /cancel для отмены.');
+    // Проверка лимита команд
+    if (isRateLimited(chatId)) {
+      await sendTelegram(chatId, '⚠️ Слишком много запросов. Пожалуйста, подождите перед отправкой следующей команды.');
       return;
     }
-    const selected = userList[num - 1];
-    session.pendingData = { removeTokenId: selected._id };
-    session.state = 'awaiting_remove_confirm';
-    await sendTelegram(
-      chatId,
-      `Вы выбрали <b>${escapeHtml(selected.name.toUpperCase())}</b> (${escapeHtml(selected.chain)})\n` +
-        `Адрес: <code>${escapeHtml(selected.address)}</code>\n\n` +
-        `Удалить этот токен? Напишите <b>yes</b> для подтверждения или <b>no</b> / /cancel для отмены.`
-    );
-    return;
-  }
-  if (state === 'awaiting_remove_confirm') {
-    if (text.toLowerCase() === 'yes') {
-      const { removeTokenId } = session.pendingData ?? {};
-      if (removeTokenId) {
-        await removeWatchlistItem(removeTokenId, chatId);
-        needRestart = true;
-        await sendTelegram(chatId, `✅ Токен удалён из вашего отслеживания.`);
-      }
-    } else {
-      await sendTelegram(chatId, '❌ Удаление отменено.');
+
+    // Инициализируем состояние пользователя, если ещё нет
+    if (!sessions.has(chatId)) {
+      sessions.set(chatId, { state: null, pendingData: {}, lastActivity: Date.now() });
     }
-    session.state = null;
-    session.pendingData = {};
-    return;
-  }
-  if (state === 'awaiting_change_select') {
-    const num = parseInt(text);
-    const userList = await getUserWatchlist(chatId);
-    if (isNaN(num) || num < 1 || num > userList.length) {
-      await sendTelegram(chatId, '❌ Введите правильный номер токена из списка или /cancel для отмены.');
+    const session = getSession(chatId);
+    const state = session.state ?? null;
+    const data = session.pendingData ?? {};
+
+    // ---------------------- Команды ----------------------
+    if (text === '/start' || text === '/help') {
+      session.state = null;
+      session.pendingData = {};
+      await sendTelegram(
+        chatId,
+        `<b>📖 Команды бота:</b>\n\n` +
+          '/add — добавить токен\n' +
+          '/remove — удалить токен (выбор из списка, подтверждение)\n' +
+          '/list — показать ваш список отслеживаемых токенов\n' +
+          '/change — изменить процент для одного токена\n' +
+          '/change_all — установить одинаковый процент для всех ваших токенов\n' +
+          '/reset_anchors — сбросить якорные цены ваших токенов\n' +
+          '/cancel — отменить текущее действие\n' +
+          '/broadcast — рассылка сообщения всем пользователям (только для админа)\n' +
+          '/delete_my_data — удалить все ваши данные\n' +
+          '/privacy — показать политику конфиденциальности\n' +
+          '/help — эта справка\n\n' +
+          '👋 Добро пожаловать! Используйте /add для добавления первого токена.'
+      );
       return;
     }
-    const selected = userList[num - 1];
-    session.pendingData = { changeTokenId: selected._id };
-    session.state = 'awaiting_change_value';
-    await sendTelegram(
-      chatId,
-      `Вы выбрали <b>${escapeHtml(selected.name.toUpperCase())}</b> (${escapeHtml(selected.chain)})\n` +
-        `Текущий порог: ${selected.changeAlert}%\n` +
-        `Введите новый процент изменения (например, 5 или 12.5):`
-    );
-    return;
-  }
-  if (state === 'awaiting_change_value') {
-    const { changeTokenId } = session.pendingData ?? {};
-    const percent = parseFloat(text);
-    if (isNaN(percent) || percent <= 0) {
-      await sendTelegram(chatId, '❌ Пожалуйста, введите положительное число (процент).');
+    if (text === '/cancel') {
+      session.state = null;
+      session.pendingData = {};
+      await sendTelegram(chatId, '🚫 Текущее действие отменено.');
       return;
     }
-    if (changeTokenId) {
-      await updateWatchlistAlert(changeTokenId, chatId, percent);
+    if (text === '/reset_anchors') {
+      await resetWatchlistAnchors(chatId);
       needRestart = true;
-      await sendTelegram(chatId, `✅ Порог изменён на ${percent}% для выбранного токена.`);
-    }
-    session.state = null;
-    session.pendingData = {};
-    return;
-  }
-  if (state === 'awaiting_change_all_value') {
-    const percent = parseFloat(text);
-    if (isNaN(percent) || percent <= 0) {
-      await sendTelegram(chatId, '❌ Пожалуйста, введите положительное число (процент).');
+      await sendTelegram(chatId, '🔁 Якорные цены ваших токенов сброшены. Цикл будет перезапущен.');
       return;
     }
-    await updateWatchlistAlertMany(chatId, percent);
-    needRestart = true;
-    await sendTelegram(chatId, `✅ Порог изменён на ${percent}% для всех ваших токенов.`);
-    session.state = null;
-    session.pendingData = {};
-    return;
-  }
+    if (text === '/broadcast') {
+      if (!isAdmin(chatId)) {
+        await sendTelegram(chatId, '❌ Недоступно.');
+        return;
+      }
+      session.state = 'awaiting_broadcast_message';
+      session.pendingData = {};
+      await sendTelegram(chatId, 'Введите сообщение для рассылки всем активным пользователям:');
+      return;
+    }
+    if (text === '/delete_my_data') {
+      await watchlistCollection.deleteMany({ ownerId: chatId });
+      await usersCollection.deleteOne({ _id: chatId });
+      await sendTelegram(chatId, '✅ Все ваши данные удалены.');
+      return;
+    }
+    if (text === '/privacy') {
+      await sendTelegram(chatId, `<b>Политика конфиденциальности</b>\n\n` +
+        `Мы храним только те данные, которые вы предоставите через бота:\n` +
+        `- Ваш Telegram ID (chatId)\n` +
+        `- Username (если предоставлен)\n` +
+        `- Список отслеживаемых токенов: адрес, цепочка, название, порог изменения, последний сигнал цены\n` +
+        `- Время последней активности\n\n` +
+        `Мы не передаём ваши данные третьим лицам. Вы можете удалить все свои данные командой /delete_my_data.\n` +
+        `Данные хранятся в MongoDB с ограниченным доступом (только для администратора).\n` +
+        `Если у вас есть вопросы, обращайтесь к администратору.`);
+      return;
+    }
 
-  // ---------------------- Основные команды ----------------------
-  if (text === '/add') {
-    session.state = 'awaiting_add_address';
-    session.pendingData = {};
-    await sendTelegram(chatId, 'Введите адрес контракта токена (например, 0x... или адрес Solana):');
-    return;
-  }
-  if (state === 'awaiting_add_address') {
-    const address = text;
-    if (!address || address.length < 5) {
-      await sendTelegram(chatId, '❌ Адрес выглядит некорректно. Попробуйте ещё раз или /cancel.');
+    // ---------------------- Состояния ----------------------
+    if (state === 'awaiting_remove_select') {
+      const num = parseInt(text);
+      const userList = await getUserWatchlist(chatId);
+      if (isNaN(num) || num < 1 || num > userList.length) {
+        await sendTelegram(chatId, '❌ Введите правильный номер токена из списка или /cancel для отмены.');
+        return;
+      }
+      const selected = userList[num - 1];
+      session.pendingData = { removeTokenId: selected._id };
+      session.state = 'awaiting_remove_confirm';
+      await sendTelegram(
+        chatId,
+        `Вы выбрали <b>${escapeHtml(selected.name.toUpperCase())}</b> (${escapeHtml(selected.chain)})\n` +
+          `Адрес: <code>${escapeHtml(selected.address)}</code>\n\n` +
+          `Удалить этот токен? Напишите <b>yes</b> для подтверждения или <b>no</b> / /cancel для отмены.`
+      );
       return;
     }
-    const info = await fetchTokenInfo(address);
-    if (!info) {
-      await sendTelegram(chatId, '❌ Не удалось получить информацию о токене по этому адресу. Проверьте адрес и попробуйте снова или /cancel.');
-      return;
-    }
-    // Check if already exists for this user
-    const exists = await watchlistCollection.findOne({
-      ownerId: chatId,
-      address: info.address.toLowerCase(),
-      chain: info.chain.toLowerCase(),
-    });
-    if (exists) {
-      await sendTelegram(chatId, `⚠️ Токен ${escapeHtml(info.name.toUpperCase())} уже есть в вашем списке.`);
+    if (state === 'awaiting_remove_confirm') {
+      if (text.toLowerCase() === 'yes') {
+        const { removeTokenId } = session.pendingData ?? {};
+        if (removeTokenId) {
+          await removeWatchlistItem(removeTokenId, chatId);
+          needRestart = true;
+          await sendTelegram(chatId, `✅ Токен удалён из вашего отслеживания.`);
+        }
+      } else {
+        await sendTelegram(chatId, '❌ Удаление отменено.');
+      }
       session.state = null;
       session.pendingData = {};
       return;
     }
-    session.pendingData = { newTokenInfo: info };
-    session.state = 'awaiting_add_threshold';
-    await sendTelegram(
-      chatId,
-      `Найден токен: <b>${escapeHtml(info.name.toUpperCase())}</b> (${escapeHtml(info.chain)})\n` +
-        `Введите процент изменения для оповещения (например, 10):`
-    );
-    return;
-  }
-  if (state === 'awaiting_add_threshold') {
-    const { newTokenInfo } = session.pendingData ?? {};
-    const percent = parseFloat(text);
-    if (isNaN(percent) || percent <= 0) {
-      await sendTelegram(chatId, '❌ Пожалуйста, введите положительное число (процент).');
+    if (state === 'awaiting_change_select') {
+      const num = parseInt(text);
+      const userList = await getUserWatchlist(chatId);
+      if (isNaN(num) || num < 1 || num > userList.length) {
+        await sendTelegram(chatId, '❌ Введите правильный номер токена из списка или /cancel для отмены.');
+        return;
+      }
+      const selected = userList[num - 1];
+      session.pendingData = { changeTokenId: selected._id };
+      session.state = 'awaiting_change_value';
+      await sendTelegram(
+        chatId,
+        `Вы выбрали <b>${escapeHtml(selected.name.toUpperCase())}</b> (${escapeHtml(selected.chain)})\n` +
+          `Текущий порог: ${selected.changeAlert}%\n` +
+          `Введите новый процент изменения (например, 5 или 12.5):`
+      );
       return;
     }
-    await addWatchlistItem(
-      chatId,
-      newTokenInfo.chain,
-      newTokenInfo.address,
-      newTokenInfo.name,
-      percent
-    );
-    needRestart = true;
-    await sendTelegram(
-      chatId,
-      `✅ Токен <b>${escapeHtml(newTokenInfo.name.toUpperCase())}</b> добавлен с порогом ${percent}%.`
-    );
-    session.state = null;
-    session.pendingData = {};
-    return;
-  }
-  if (text === '/list') {
-    const userList = await getUserWatchlist(chatId);
-    if (userList.length === 0) {
-      await sendTelegram(chatId, '📭 Ваш список отслеживания пуст.');
+    if (state === 'awaiting_change_value') {
+      const { changeTokenId } = session.pendingData ?? {};
+      const percent = parseFloat(text);
+      if (isNaN(percent) || percent <= 0) {
+        await sendTelegram(chatId, '❌ Пожалуйста, введите положительное число (процент).');
+        return;
+      }
+      if (changeTokenId) {
+        await updateWatchlistAlert(changeTokenId, chatId, percent);
+        needRestart = true;
+        await sendTelegram(chatId, `✅ Порог изменён на ${percent}% для выбранного токена.`);
+      }
+      session.state = null;
+      session.pendingData = {};
       return;
     }
-    let msg = '<b>📋 Ваш список отслеживаемых токенов:</b>\n';
-    userList.forEach((item, idx) => {
-      msg += `${idx + 1}. <b>${escapeHtml(item.name.toUpperCase())}</b> (${escapeHtml(item.chain)}) – ${item.changeAlert}%\n`;
-    });
-    await sendTelegram(chatId, msg);
-    return;
-  }
-  if (text === '/change') {
-    const userList = await getUserWatchlist(chatId);
-    if (userList.length === 0) {
-      await sendTelegram(chatId, '📭 Ваш список отслеживания пуст. Сначала добавьте токены через /add.');
+    if (state === 'awaiting_change_all_value') {
+      const percent = parseFloat(text);
+      if (isNaN(percent) || percent <= 0) {
+        await sendTelegram(chatId, '❌ Пожалуйста, введите положительное число (процент).');
+        return;
+      }
+      await updateWatchlistAlertMany(chatId, percent);
+      needRestart = true;
+      await sendTelegram(chatId, `✅ Порог изменён на ${percent}% для всех ваших токенов.`);
+      session.state = null;
+      session.pendingData = {};
       return;
     }
-    let msg = '<b>Выберите токен для изменения порога:</b>\n';
-    userList.forEach((item, idx) => {
-      msg += `${idx + 1}. <b>${escapeHtml(item.name.toUpperCase())}</b> (${escapeHtml(item.chain)}) – текущий ${item.changeAlert}%\n`;
-    });
-    session.state = 'awaiting_change_select';
-    session.pendingData = {};
-    await sendTelegram(chatId, msg);
-    return;
-  }
-  if (text === '/change_all') {
-    const userList = await getUserWatchlist(chatId);
-    if (userList.length === 0) {
-      await sendTelegram(chatId, '📭 Ваш список отслеживания пуст. Сначала добавьте токены через /add.');
+    if (state === 'awaiting_broadcast_message') {
+      const broadcastText = text;
+      if (!broadcastText || broadcastText.length === 0) {
+        await sendTelegram(chatId, '❌ Сообщение не может быть пустым.');
+        return;
+      }
+      // Получаем всех активных пользователей
+      const users = await usersCollection.find({ status: 'active' }).toArray();
+      let sent = 0;
+      for (const user of users) {
+        const ok = await sendTelegram(user._id, broadcastText);
+        if (ok) sent++;
+        // Небольшая задержка чтобы не превысить лимит Telegram
+        await sleep(35);
+      }
+      await sendTelegram(chatId, `✅ Рассылка завершена. Отправлено ${sent}/${users.length} пользователям.`);
+      session.state = null;
+      session.pendingData = {};
       return;
     }
-    session.state = 'awaiting_change_all_value';
-    session.pendingData = {};
-    await sendTelegram(chatId, 'Введите процент изменения, который будет установлен для всех ваших токенов:');
-    return;
-  }
 
-  // Если ничего не подошло – просто игнорируем (можно отправить напоминание о /help)
+    // ---------------------- Основные команды ----------------------
+    if (text === '/add') {
+      session.state = 'awaiting_add_address';
+      session.pendingData = {};
+      await sendTelegram(chatId, 'Введите адрес контракта токена (например, 0x... или адрес Solana):');
+      return;
+    }
+    if (state === 'awaiting_add_address') {
+      const address = text;
+      if (!address || address.length < 5) {
+        await sendTelegram(chatId, '❌ Адрес выглядит некорректно. Попробуйте ещё раз или /cancel.');
+        return;
+      }
+      const info = await fetchTokenInfo(address);
+      if (!info) {
+        await sendTelegram(chatId, '❌ Не удалось получить информацию о токене по этому адресу. Проверьте адрес и попробуйте снова или /cancel.');
+        return;
+      }
+      // Check if already exists for this user
+      const exists = await watchlistCollection.findOne({
+        ownerId: chatId,
+        address: info.address.toLowerCase(),
+        chain: info.chain.toLowerCase(),
+      });
+      if (exists) {
+        await sendTelegram(chatId, `⚠️ Токен ${escapeHtml(info.name.toUpperCase())} уже есть в вашем списке.`);
+        session.state = null;
+        session.pendingData = {};
+        return;
+      }
+      // Token limit check
+      const currentCount = await watchlistCollection.countDocuments({ ownerId: chatId });
+      const user = await usersCollection.findOne({ _id: chatId });
+      const limit = user?.maxTokens ?? 20;
+      if (currentCount >= limit) {
+        await sendTelegram(chatId, `❌ Лимит ${limit} токенов достигнут. Удалите некоторые токены перед добавлением новых.`);
+        return;
+      }
+      session.pendingData = { newTokenInfo: info };
+      session.state = 'awaiting_add_threshold';
+      await sendTelegram(
+        chatId,
+        `Найден токен: <b>${escapeHtml(info.name.toUpperCase())}</b> (${escapeHtml(info.chain)})\n` +
+          `Введите процент изменения для оповещения (например, 10):`
+      );
+      return;
+    }
+    if (state === 'awaiting_add_threshold') {
+      const { newTokenInfo } = session.pendingData ?? {};
+      const percent = parseFloat(text);
+      if (isNaN(percent) || percent <= 0) {
+        await sendTelegram(chatId, '❌ Пожалуйста, введите положительное число (процент).');
+        return;
+      }
+      await addWatchlistItem(
+        chatId,
+        newTokenInfo.chain,
+        newTokenInfo.address,
+        newTokenInfo.name,
+        percent
+      );
+      needRestart = true;
+      await sendTelegram(
+        chatId,
+        `✅ Токен <b>${escapeHtml(newTokenInfo.name.toUpperCase())}</b> добавлен с порогом ${percent}%.`
+      );
+      session.state = null;
+      session.pendingData = {};
+      return;
+    }
+    if (text === '/list') {
+      const userList = await getUserWatchlist(chatId);
+      if (userList.length === 0) {
+        await sendTelegram(chatId, '📭 Ваш список отслеживания пуст.');
+        return;
+      }
+      let msg = '<b>📋 Ваш список отслеживаемых токенов:</b>\n';
+      userList.forEach((item, idx) => {
+        msg += `${idx + 1}. <b>${escapeHtml(item.name.toUpperCase())}</b> (${escapeHtml(item.chain)}) – ${item.changeAlert}%\n`;
+      });
+      await sendTelegram(chatId, msg);
+      return;
+    }
+    if (text === '/change') {
+      const userList = await getUserWatchlist(chatId);
+      if (userList.length === 0) {
+        await sendTelegram(chatId, '📭 Ваш список отслеживания пуст. Сначала добавьте токены через /add.');
+        return;
+      }
+      let msg = '<b>Выберите токен для изменения порога:</b>\n';
+      userList.forEach((item, idx) => {
+        msg += `${idx + 1}. <b>${escapeHtml(item.name.toUpperCase())}</b> (${escapeHtml(item.chain)}) – текущий ${item.changeAlert}%\n`;
+      });
+      session.state = 'awaiting_change_select';
+      session.pendingData = {};
+      await sendTelegram(chatId, msg);
+      return;
+    }
+    if (text === '/change_all') {
+      const userList = await getUserWatchlist(chatId);
+      if (userList.length === 0) {
+        await sendTelegram(chatId, '📭 Ваш список отслеживания пуст. Сначала добавьте токены через /add.');
+        return;
+      }
+      session.state = 'awaiting_change_all_value';
+      session.pendingData = {};
+      await sendTelegram(chatId, 'Введите процент изменения, который будет установлен для всех ваших токенов:');
+      return;
+    }
+
+    // Если ничего не подошло – просто игнорируем (можно отправить напоминание о /help)
+  } catch (err) {
+    console.error('Internal error:', err);
+    await sendTelegram(msg.chat.id.toString(), '⚠️ Произошла ошибка. Попробуйте позже.');
+  }
 }
 
 // ---------- Планировщик циклов с интервалом 20 секунд ----------
