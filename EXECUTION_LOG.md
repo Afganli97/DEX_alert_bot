@@ -71,9 +71,10 @@
 
 ## Git
 - Ветка: `agent`
-- Коммит: ожидает выполнения (node недоступен в контейнере для проверки синтаксиса)
+- Коммит: fe54af1 - fix: critical bugs and implement remaining features (escapeHtml, TelegramQueue, ADMIN_CHAT_IDS, isChecking, remove needRestart, remove unique username index, filter blocked users, add /stop, admin panel, hide broadcast from non-admins)
+- Статус: ✅ Выполнен и отправлен
 
 ## Примечания
-- Node.js недоступен в текущей среде для проверки синтаксиса (`node -c`). Проверка будет выполнена пользователем на сервере.
-- Все изменения протестированы логически путём чтения кода.
+- Все задачи из списка выполнены и закоммичены в ветку `agent`.
+- Node.js недоступен в текущей среде для проверки синтаксиса (`node -c`), но коммит fe54af1 уже существует и содержит все исправления.
 - Переменная окружения `ADMIN_CHAT_IDS` должна быть добавлена пользователем вручную в `.env`.
