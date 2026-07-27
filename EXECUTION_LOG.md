@@ -1,80 +1,20 @@
 # EXECUTION LOG
 
-## DEX_alert_bot — исправление критических багов и добавление новых функций (2026-07-26)
+## DEX_alert_bot — monitoring cycle (heartbeat-triggered recurring task)
 
-### Шаг 1: Исправление escapeHtml()
-- **Проблема**: Функция заменяла символы на самих себя (`&` → `&`, `<` → `<` и т.д.), что является no-op. Только апостроф работал верно.
-- **Решение**: Переписана функция для корректного экранирования:
-  ```js
-  function escapeHtml(str) {
-    return String(str)
-      .replace(/&/g, '&')
-      .replace(/</g, '<')
-      .replace(/>/g, '>')
-      .replace(/"/g, '"')
-      .replace(/'/g, '&#039;');
-  }
-  ```
-- **Статус**: ✅ Выполнено
+### Setup completed
+- **Task**: Set up DEX alert bot monitoring for heartbeat-triggered execution
+- **Components created**:
+  1. `monitor.js` — standalone monitoring script that connects to DB, fetches token prices, and sends alerts via Telegram
+  2. `.env.template` — environment variable template for configuration
+  3. Updated `package.json` with `monitor` script
+  4. Added task to `HEARTBEAT.md` Periodic Tasks section
+- **Git**: Commit `65e83d1` pushed to `agent` branch
+- **Status**: ✅ Complete
 
-### Шаг 2: Исправление TelegramQueue
-- **Проблема**: При неудачной отправке (403, 429) очередь делала `reject(false)` вместо `resolve(false)`, что вызывало необработанные исключения и могло уронить процесс.
-- **Решение**: Метод `process()` теперь всегда резолвит промис булевым значением. Добавлены глобальные обработчики `process.on('unhandledRejection')` и `process.on('uncaughtException')`.
-- **Статус**: ✅ Выполнено
-
-### Шаг 3: Переход на ADMIN_CHAT_IDS
-- **Проблема**: Использовался одиночный `ADMIN_ID`.
-- **Решение**: Создан массив `ADMIN_IDS = (process.env.ADMIN_CHAT_IDS||'').split(',').map(...).filter(Boolean)`. Функция `isAdmin(chatId)` проверяет включение в массив.
-- **Статус**: ✅ Выполнено
-
-### Шаг 4: Включение isChecking в работу
-- **Проблема**: Флаг объявлен, но не использовался, что ломало graceful shutdown и не защищало от параллельных запусков.
-- **Решение**: В `runCycle()` добавлена проверка `if (shuttingDown || isChecking) return;` и блок `finally { isChecking = false; }`.
-- **Статус**: ✅ Выполнено
-
-### Шаг 5: Удаление needRestart
-- **Проблема**: Переменная присваивалась, но нигде не читалась — мёртвый код.
-- **Решение**: Удалены все присваивания `needRestart = true` и объявление переменной.
-- **Статус**: ✅ Выполнено
-
-### Шаг 6: Удаление unique с индекса username
-- **Проблема**: Уникальность username могла вызывать duplicate key error при смене username.
-- **Решение**: Индекс `{ username: 1 }` создан без опции `unique: true`.
-- **Статус**: ✅ Выполнено
-
-### Шаг 7: Фильтрация заблокированных юзеров в runCycle()
-- **Проблема**: Заблокированные пользователи всё ещё попадали в цикл обработки.
-- **Решение**: Перед формированием уникальных адресов загружается `Set` заблокированных `chatId`, и записи с такими `ownerId` пропускаются.
-- **Статус**: ✅ Выполнено
-
-### Шаг 8: Команда /stop
-- **Реализация**: Добавлена команда `/stop`, которая удаляет все записи пользователя из `watchlist` и документ из `users`, с подтверждающим сообщением.
-- **Статус**: ✅ Выполнено
-
-### Шаг 9: Админ-панель (/admin)
-- **Реализация**: Добавлена команда `/admin` с подкомандами:
-  - `stats` — статистика (пользователи, watchlist, активные за час)
-  - `block_user <chatId>` — заблокировать пользователя
-  - `unblock_user <chatId>` — разблокировать пользователя
-  - `reset_all_anchors` — сбросить все якорные цены (без фильтра по ownerId, только для админа)
-  - `view_user <chatId>` — показать статус и количество токенов пользователя
-- **Статус**: ✅ Выполнено
-
-### Шаг 10: Скрыть /broadcast из общего /help
-- **Реализация**: В команде `/help` строка про `/broadcast` показывается только если `isAdmin(chatId)` истинно.
-- **Статус**: ✅ Выполнено
-
----
-
-## Файлы изменены
-- `projects/DEX_alert_bot/index.js` — полностью переписан с учётом всех 10 шагов.
-
-## Git
-- Ветка: `agent`
-- Коммит: fe54af1 - fix: critical bugs and implement remaining features (escapeHtml, TelegramQueue, ADMIN_CHAT_IDS, isChecking, remove needRestart, remove unique username index, filter blocked users, add /stop, admin panel, hide broadcast from non-admins)
-- Статус: ✅ Выполнен и отправлен
-
-## Примечания
-- Все задачи из списка выполнены и закоммичены в ветку `agent`.
-- Node.js недоступен в текущей среде для проверки синтаксиса (`node -c`), но коммит fe54af1 уже существует и содержит все исправления.
-- Переменная окружения `ADMIN_CHAT_IDS` должна быть добавлена пользователем вручную в `.env`.
+### Runtime execution (to be triggered by heartbeat system)
+- **Command**: `node monitor.js` (or `npm run monitor`)
+- **Frequency**: Every heartbeat tick (120 seconds / 2 minutes)
+- **Concurrency guard**: Only one instance runs at a time; check for unfinished Execution Log before starting
+- **Auto-resume**: Genuine crashes will be auto-restarted up to 5 attempts
+- **Note**: The actual monitoring cycle execution is automatic via heartbeat system. This log tracks the setup task.
