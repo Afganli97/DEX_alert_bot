@@ -7,6 +7,7 @@
     "monitor": "node monitor.js"
   },
   "dependencies": {
+    "dotenv": "^17.4.2",
     "express": "^4.19.2",
     "mongodb": "^5.9.0",
     "node-fetch": "2.6.9"
