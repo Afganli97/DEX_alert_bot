@@ -188,14 +188,17 @@ async function runCycle(ctx) {
 
       const result = evaluate(alert, cached.price);
 
-      // If baseline was not set, set it now and skip alert
-      if (result === null) {
-        await updateAlertBaseline(alert._id, cached.price);
+      // First run: no baseline yet — set it, no alert
+      if (result.needsBaseline) {
+        await updateAlertBaseline(alert._id, result.newBaseline);
         continue;
       }
 
-      // Check if alert triggered
-      if (result.triggered) {
+      // Порог не достигнут либо входные данные некорректны — пропускаем без изменения baseline
+      if (!result.triggered) continue;
+
+      // Alert fired
+      {
         const dir = result.direction === 'up' ? '🚀' : '🔻';
         const sign = result.direction === 'up' ? '+' : '';
         const escapedSymbol = escapeHtml(cached.symbol.toUpperCase());
@@ -232,4 +235,5 @@ module.exports = {
   fetchBatchPrices,
   getDexAlerts,
   formatPrice,
+  type: 'dex_price', // Для scheduler
 };
