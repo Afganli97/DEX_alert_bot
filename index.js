@@ -2,11 +2,8 @@
 // DEX ALERT BOT (Multi-user version)
 // ==============================
 require('dotenv').config();
-const { MongoClient } = require('mongodb');
 const { connectToMongo, closeMongo } = require('./lib/db');
 const { initUsers, ensureUser, isAdmin, markUserBlocked } = require('./lib/users');
-const { initCollections: initAlertsCollection } = require('./checkers/dexPriceChecker');
-const { initCollections: initCommandHandlers } = require('./handlers/commands');
 const { startScheduler } = require('./scheduler');
 
 // Telegram polling will be started in this file
@@ -15,6 +12,7 @@ let db;
 let usersCollection;
 let alertsCollection;
 let client;
+let ctx;
 
 // Initialize modules after DB connection
 async function initializeModules() {
@@ -24,6 +22,10 @@ async function initializeModules() {
   // Initialize users module
   initUsers(usersCollection);
 
+  // Initialize Telegram queue
+  const { setUsersCollection } = require('./lib/telegram');
+  setUsersCollection(usersCollection);
+
   // Initialize alert checker
   const dexPriceChecker = require('./checkers/dexPriceChecker');
   dexPriceChecker.initCollections(alertsCollection, usersCollection);
@@ -31,19 +33,36 @@ async function initializeModules() {
   // Initialize command handlers
   const commandHandlers = require('./handlers/commands');
   commandHandlers.initCollections(alertsCollection, usersCollection);
+
+  console.log('✅ Все модули инициализированы');
 }
 
 // Start Telegram long polling
 async function startPolling() {
   const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
-  const TELEGRAM_API = `https://api.telegram.org/bot${TELEGRAM_TOKEN}`;
+  
+  // Валидация токена бота
+  if (!TELEGRAM_TOKEN || TELEGRAM_TOKEN.trim() === '') {
+    throw new Error('TELEGRAM_TOKEN is not set in environment variables');
+  }
+
+  const TELEGRAM_API = `https://api.telegram.org/bot${TELEGRAM_TOKEN.trim()}`;
   let offset = 0;
 
   console.log('🚀 Запуск long polling...');
 
   while (!global.shuttingDown) {
     try {
-      const res = await fetch(`${TELEGRAM_API}/getUpdates?offset=${offset}&timeout=30`);
+      const res = await fetch(`${TELEGRAM_API}/getUpdates?offset=${offset}&timeout=30`, {
+        signal: AbortSignal.timeout(30000),
+      });
+      
+      if (!res.ok) {
+        console.error(`HTTP error: ${res.status}`);
+        await new Promise(r => setTimeout(r, 5000));
+        continue;
+      }
+      
       const data = await res.json();
 
       if (data.ok && data.result) {
@@ -57,7 +76,11 @@ async function startPolling() {
         }
       }
     } catch (err) {
-      console.error('Ошибка в long polling:', err);
+      if (err.name === 'AbortError') {
+        console.error('Timeout в polling');
+      } else {
+        console.error('Ошибка в long polling:', err);
+      }
       await new Promise(r => setTimeout(r, 5000)); // Wait 5 seconds before retrying
     }
   }
@@ -67,6 +90,12 @@ async function startPolling() {
 async function shutdown() {
   console.log('🛑 Получен сигнал остановки...');
   global.shuttingDown = true;
+
+  // Wait for the current check cycle to finish before closing DB
+  while (ctx.isChecking) {
+    await new Promise(r => setTimeout(r, 500));
+  }
+
   await closeMongo();
   console.log('✅ Остановка завершена');
   process.exit(0);
@@ -85,9 +114,9 @@ async function main() {
     // Set up global shuttingDown flag for scheduler and polling
     global.shuttingDown = false;
 
-    // Start scheduler
-    const ctx = {
-      shuttingDown: false,
+    // Start scheduler — ctx.shuttingDown is a getter that mirrors global.shuttingDown
+    ctx = {
+      get shuttingDown() { return global.shuttingDown; },
       isChecking: false,
     };
     startScheduler(ctx);

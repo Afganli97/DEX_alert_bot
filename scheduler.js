@@ -5,7 +5,14 @@
 const config = require('../config');
 const dexPriceChecker = require('../checkers/dexPriceChecker');
 
-const checkers = [dexPriceChecker];
+// Checkers configuration with metadata
+const checkers = [
+  {
+    module: dexPriceChecker,
+    type: dexPriceChecker.type,
+    intervalMs: config.dexPrice.intervalMs,
+  },
+];
 
 /**
  * Start all checkers with their configured intervals
@@ -16,9 +23,9 @@ function startScheduler(ctx) {
     const loop = async () => {
       if (!ctx.shuttingDown) {
         try {
-          await checker.runCycle(ctx);
+          await checker.module.runCycle(ctx);
         } catch (e) {
-          console.error(`${checker.type} error:`, e);
+          console.error(`${checker.type} checker error:`, e);
         }
       }
       setTimeout(loop, checker.intervalMs);

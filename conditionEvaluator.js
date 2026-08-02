@@ -3,46 +3,43 @@
 // ==============================
 
 /**
- * Evaluate if an alert condition is met
- * @param {Object} alert - Alert document with condition
- * @param {number} currentPrice - Current token price
- * @returns {Object|null} Evaluation result or null if baseline should be set
+ * Evaluate if an alert condition is met.
+ * Returns:
+ *   { needsBaseline: true, newBaseline: <number> } — baseline not set yet
+ *   { triggered: false } — change below threshold, baseline stays unchanged
+ *   { triggered: true, direction, changePct, newBaseline } — alert fired
+ *   { valid: false } — invalid input
  */
 function evaluate(alert, currentPrice) {
-  const { kind } = alert.condition;
-
-  if (kind === 'percent_change') {
-    const { changePercent, baselinePrice } = alert.condition;
-
-    // If no baseline price, set current as baseline and return null (no alert yet)
-    if (baselinePrice == null) {
-      return null;
-    }
-
-    // Calculate percentage change
-    const changePct = ((currentPrice - baselinePrice) / baselinePrice) * 100;
-
-    // Check if change exceeds threshold
-    if (Math.abs(changePct) >= changePercent) {
-      return {
-        triggered: true,
-        changePct,
-        direction: changePct > 0 ? 'up' : 'down',
-        newBaseline: currentPrice,
-      };
-    }
-
-    return {
-      triggered: false,
-      changePct,
-      direction: changePct > 0 ? 'up' : 'down',
-    };
+  if (!alert || !alert.condition || typeof currentPrice !== 'number' || !isFinite(currentPrice) || currentPrice <= 0) {
+    return { valid: false };
   }
 
-  // Unknown condition kind - treat as no trigger
-  return { triggered: false };
+  const { kind, changePercent, baselinePrice } = alert.condition;
+
+  if (kind !== 'percent_change') {
+    return { valid: false };
+  }
+
+  // First run: no baseline yet — set it, no alert
+  if (baselinePrice === null || baselinePrice === undefined) {
+    return { needsBaseline: true, newBaseline: currentPrice };
+  }
+
+  const change = ((currentPrice - baselinePrice) / baselinePrice) * 100;
+
+  // Below threshold — baseline stays, change continues to accumulate
+  if (Math.abs(change) < changePercent) {
+    return { triggered: false };
+  }
+
+  // Alert fired — reset baseline to current price
+  return {
+    triggered: true,
+    direction: change > 0 ? 'up' : 'down',
+    changePct: Math.abs(change),
+    newBaseline: currentPrice,
+  };
 }
 
-module.exports = {
-  evaluate,
-};
+module.exports = { evaluate };
