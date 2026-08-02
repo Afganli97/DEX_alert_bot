@@ -2,7 +2,7 @@
 // Command handlers - all bot commands
 // ==============================
 
-const { escapeHtml, sendTelegram } = require('../lib/telegram');
+const { escapeHtml, sendTelegram, sleep } = require('../lib/telegram');
 const { ensureUser, isAdmin, markUserBlocked } = require('../lib/users');
 const { ObjectId } = require('mongodb');
 
@@ -82,8 +82,38 @@ async function getUserAlerts(ownerId) {
  * @param {string} name - Token name
  * @param {number} changePercent - Change threshold percent
  */
+// Basic address validation (EVM or Solana format)
+function isValidTokenAddress(address) {
+  const isEvm = /^0x[0-9a-fA-F]{40}$/.test(address);
+  const isSolana = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address);
+  return isEvm || isSolana;
+}
+
 async function addAlert(ownerId, chain, address, name, changePercent = 10) {
+  // Валидация входных данных для защиты от инъекций
+  if (!ownerId || typeof ownerId !== 'string') {
+    throw new Error('Invalid ownerId');
+  }
+
+  if (!chain || typeof chain !== 'string' || chain.length > 50) {
+    throw new Error('Invalid chain');
+  }
+
+  if (!isValidTokenAddress(address)) {
+    throw new Error('Invalid token address');
+  }
+
+  if (name && (name.length > 100 || typeof name !== 'string')) {
+    name = name.slice(0, 100);
+  }
+
   const trimmedName = (name || '').slice(0, 30);
+
+  // Validate changePercent
+  if (typeof changePercent !== 'number' || changePercent <= 0 || changePercent > 1000) {
+    throw new Error('Invalid changePercent value');
+  }
+
   await alertsCollection.insertOne({
     ownerId,
     source: 'dex',
@@ -119,6 +149,13 @@ async function removeAlert(alertId, ownerId) {
  * @param {number} newPercent - New threshold
  */
 async function updateAlertThreshold(alertId, ownerId, newPercent) {
+  if (!ownerId || typeof ownerId !== 'string') {
+    throw new Error('Invalid ownerId');
+  }
+  if (typeof newPercent !== 'number' || newPercent <= 0 || newPercent > 1000) {
+    throw new Error('Invalid newPercent value');
+  }
+
   await alertsCollection.updateOne(
     { _id: alertId, ownerId },
     { $set: { 'condition.changePercent': Number(newPercent) } }
@@ -130,6 +167,10 @@ async function updateAlertThreshold(alertId, ownerId, newPercent) {
  * @param {string} ownerId - Owner's chat ID
  */
 async function resetBaselines(ownerId) {
+  if (!ownerId || typeof ownerId !== 'string') {
+    throw new Error('Invalid ownerId');
+  }
+
   await alertsCollection.updateMany(
     { ownerId },
     { $set: { 'condition.baselinePrice': null } }
@@ -142,6 +183,13 @@ async function resetBaselines(ownerId) {
  * @param {number} newPercent - New threshold
  */
 async function updateAllThresholds(ownerId, newPercent) {
+  if (!ownerId || typeof ownerId !== 'string') {
+    throw new Error('Invalid ownerId');
+  }
+  if (typeof newPercent !== 'number' || newPercent <= 0 || newPercent > 1000) {
+    throw new Error('Invalid newPercent value');
+  }
+
   await alertsCollection.updateMany(
     { ownerId },
     { $set: { 'condition.changePercent': Number(newPercent) } }
@@ -250,7 +298,7 @@ async function handleMessage(msg) {
       }
       session.state = 'awaiting_broadcast_message';
       session.pendingData = {};
-      await sendTelegram(chatId, 'Введите сообщение для рассылки всем активным пользователям:');
+      await sendTelegram(chatId, 'Введите сообщение для рассылка всем активным пользователям (максимум 1000 получателей):');
       return;
     }
 
@@ -352,15 +400,24 @@ async function handleMessage(msg) {
 
     // ---------------------- States ----------------------
     if (state === 'awaiting_broadcast_message') {
-      // Broadcast to all active users
       const activeUsers = await usersCollection.find({ status: 'active' }).toArray();
+
+      if (activeUsers.length > 1000) {
+        await sendTelegram(chatId, `⚠️ Превышено максимальное количество получателей (${activeUsers.length}). Максимум: 1000.`);
+        session.state = null;
+        session.pendingData = {};
+        return;
+      }
+
       let successCount = 0;
       let failCount = 0;
+
       for (const user of activeUsers) {
         const ok = await sendTelegram(user._id, text);
         if (ok) successCount++;
         else failCount++;
       }
+
       await sendTelegram(chatId, `✅ Рассылка завершена. Успешно: ${successCount}, ошибок: ${failCount}`);
       session.state = null;
       session.pendingData = {};
@@ -577,7 +634,7 @@ async function handleMessage(msg) {
     if (text === '/change_all') {
       session.state = 'awaiting_change_all_value';
       session.pendingData = {};
-      await sendTelegram(chatId, 'Введите новый порог изменения % для всех ваших токенов:');
+      await sendTelegram(chatId, 'Введите новый порог изменения % для всех ваших токенов (от 0.1 до 1000):');
       return;
     }
 

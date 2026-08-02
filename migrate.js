@@ -44,22 +44,22 @@ async function migrate() {
       }
 
       const doc = {
-        ownerId: LEGACY_OWNER_CHAT_ID,
-        source: 'dex',
-        target: {
-          chain: item.chain.toLowerCase(),
-          address: item.address.toLowerCase(),
-          name: item.name || 'unknown',
-        },
-        condition: {
-          kind: 'percent_change',
-          changePercent: item.changeAlert,
-          baselinePrice: item.lastAlertPrice ?? null,
-        },
-        repeat: 'always',
-        status: 'active',
-        createdAt: new Date(),
-      };
+  ownerId: LEGACY_OWNER_CHAT_ID,
+  source: 'dex',
+  target: {
+    chain: item.chain.toLowerCase(),
+    address: item.address.toLowerCase(),
+  },
+  condition: {
+    kind: 'percent_change',
+    changePercent: item.changeAlert,
+    baselinePrice: item.lastAlertPrice ?? null,
+  },
+  repeat: 'always',
+  status: 'active',
+  name: item.name || 'unknown',
+  createdAt: new Date(),
+};
 
       try {
         await alerts.insertOne(doc);

@@ -1,0 +1,12 @@
+# Исключить временные и тестовые файлы
+fixEscape.js
+.env.template
+.env
+*.log
+
+# Git
+.git
+.gitignore
+
+# Документация
+README.md
