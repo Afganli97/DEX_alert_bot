@@ -2,7 +2,7 @@
 // Command handlers - all bot commands
 // ==============================
 
-const { escapeHtml, sendTelegram, sleep } = require('../lib/telegram');
+const { escapeHtml, sendTelegram } = require('../lib/telegram');
 const { ensureUser, isAdmin, markUserBlocked } = require('../lib/users');
 const { ObjectId } = require('mongodb');
 
