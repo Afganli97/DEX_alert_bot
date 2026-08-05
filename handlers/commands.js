@@ -114,6 +114,14 @@ async function addAlert(ownerId, chain, address, name, changePercent = 10) {
     throw new Error('Invalid changePercent value');
   }
 
+  // Enforce per-user token limit (default 20 if user has no maxTokens set)
+  const currentCount = await alertsCollection.countDocuments({ ownerId });
+  const user = await usersCollection.findOne({ _id: ownerId });
+  const limit = user?.maxTokens ?? 20;
+  if (currentCount >= limit) {
+    throw new Error(`TOKEN_LIMIT_REACHED:${limit}`);
+  }
+
   await alertsCollection.insertOne({
     ownerId,
     source: 'dex',
@@ -551,7 +559,10 @@ async function handleMessage(msg) {
               `Первый алерт будет отправлен, когда цена изменится на ${percent}% от текущей.`
           );
         } catch (e) {
-          if (e.code === 11000) {
+          if (e.message && e.message.startsWith('TOKEN_LIMIT_REACHED:')) {
+            const limit = e.message.split(':')[1];
+            await sendTelegram(chatId, `❌ Лимит ${limit} токенов достигнут. Удалите ненужные токены, чтобы добавить новый.`);
+          } else if (e.code === 11000) {
             await sendTelegram(chatId, '❌ Этот токен уже отслеживается в вашем списке.');
           } else {
             console.error('Error adding alert:', e);
