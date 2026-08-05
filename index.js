@@ -65,7 +65,13 @@ async function startPolling() {
       
       const data = await res.json();
 
-      if (data.ok && data.result) {
+      if (!data.ok) {
+        console.error('Telegram getUpdates error:', data);
+        await new Promise(r => setTimeout(r, 5000)); // don't hammer API without delay
+        continue;
+      }
+
+      if (data.result) {
         for (const update of data.result) {
           offset = update.update_id + 1;
           if (update.message) {
