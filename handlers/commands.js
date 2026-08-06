@@ -292,7 +292,7 @@ async function handleMessage(msg) {
     if (text === '/start' || text === '/help') {
       session.state = null;
       session.pendingData = {};
-      let helpText = `<b>📖 Команды бота:</b>\n\n` +
+      let helpText = '<b>📖 Команды бота:</b>\n\n' +
         '/add — добавить токен\n' +
         '/remove — удалить токен (выбор из списка, подтверждение)\n' +
         '/list — показать ваш список отслеживаемых токенов\n' +
@@ -351,15 +351,15 @@ async function handleMessage(msg) {
     }
 
     if (text === '/privacy') {
-      await sendTelegram(chatId, `<b>Политика конфиденциальности</b>\n\n` +
-        `Мы храним только те данные, которые вы предоставите через бота:\n` +
-        `- Ваш Telegram ID (chatId)\n` +
-        `- Username (если предоставлен)\n` +
-        `- Список отслеживаемых токенов: адрес, цепочка, название, порог изменения, последний сигнал цены\n` +
-        `- Время последней активности\n\n` +
-        `Мы не передаём ваши данные третьим лицам. Вы можете удалить все свои данные командой /delete_my_data или /stop.\n` +
-        `Данные хранятся в MongoDB с ограниченным доступом (только для администратора).\n` +
-        `Если у вас есть вопросы, обращайтесь к администратору.`);
+      await sendTelegram(chatId, '<b>Политика конфиденциальности</b>\n\n' +
+        'Мы храним только те данные, которые вы предоставите через бота:\n' +
+        '- Ваш Telegram ID (chatId)\n' +
+        '- Username (если предоставлен)\n' +
+        '- Список отслеживаемых токенов: адрес, цепочка, название, порог изменения, последний сигнал цены\n' +
+        '- Время последней активности\n\n' +
+        'Мы не передаём ваши данные третьим лицам. Вы можете удалить все свои данные командой /delete_my_data или /stop.\n' +
+        'Данные хранятся в MongoDB с ограниченным доступом (только для администратора).\n' +
+        'Если у вас есть вопросы, обращайтесь к администратору.');
       return;
     }
 
@@ -377,7 +377,7 @@ async function handleMessage(msg) {
           const totalAlerts = await alertsCollection.countDocuments({});
           const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
           const activeLastHour = await usersCollection.countDocuments({ lastActivityAt: { $gte: oneHourAgo }, status: 'active' });
-          await sendTelegram(chatId, `<b>📊 Статистика:</b>\n` +
+          await sendTelegram(chatId, '<b>📊 Статистика:</b>\n' +
             `Пользователей всего: ${totalUsers}\n` +
             `Активных алертов: ${totalAlerts}\n` +
             `Активных за последний час: ${activeLastHour}`);
@@ -474,7 +474,7 @@ async function handleMessage(msg) {
         chatId,
         `Вы выбрали <b>${escapeHtml((selected.name || '').toUpperCase())}</b> (${escapeHtml(selected.target.chain)})\n` +
           `Адрес: <code>${escapeHtml(selected.target.address)}</code>\n\n` +
-          `Удалить этот алерт? Напишите <b>yes</b> для подтверждения или <b>no</b> / /cancel для отмены.`
+          'Удалить этот алерт? Напишите <b>yes</b> для подтверждения или <b>no</b> / /cancel для отмены.'
       );
       return;
     }
@@ -484,7 +484,7 @@ async function handleMessage(msg) {
         const { removeAlertId } = session.pendingData ?? {};
         if (removeAlertId) {
           await removeAlert(removeAlertId, chatId);
-          await sendTelegram(chatId, `✅ Алерт удалён.`);
+          await sendTelegram(chatId, '✅ Алерт удалён.');
         }
       } else {
         await sendTelegram(chatId, '❌ Удаление отменено.');
@@ -508,7 +508,7 @@ async function handleMessage(msg) {
         chatId,
         `Вы выбрали <b>${escapeHtml((selected.name || '').toUpperCase())}</b> (${escapeHtml(selected.target.chain)})\n` +
           `Текущий порог: ${selected.condition.changePercent}%\n` +
-          `Введите новый процент изменения (например, 5 или 12.5):`
+          'Введите новый процент изменения (например, 5 или 12.5):'
       );
       return;
     }
@@ -559,11 +559,11 @@ async function handleMessage(msg) {
       session.pendingData.tokenInfo = tokenInfo;
       await sendTelegram(
         chatId,
-        `📊 <b>Информация о токене:</b>\n\n` +
+        '📊 <b>Информация о токене:</b>\n\n' +
           `<b>Сеть:</b> ${escapeHtml(tokenInfo.chain)}\n` +
           `<b>Символ:</b> ${escapeHtml(tokenInfo.name.toUpperCase())}\n` +
           `<b>Адрес:</b> <code>${escapeHtml(tokenInfo.address)}</code>\n\n` +
-          `Введите порог изменения % (например, 10):`
+          'Введите порог изменения % (например, 10):'
       );
       return;
     }
@@ -581,7 +581,7 @@ async function handleMessage(msg) {
           await addAlert(chatId, tokenInfo.chain, addAddress, tokenInfo.name, percent);
           await sendTelegram(
             chatId,
-            `✅ Токен добавлен!\n\n` +
+            '✅ Токен добавлен!\n\n' +
               `<b>${escapeHtml(tokenInfo.name.toUpperCase())}</b> (${escapeHtml(tokenInfo.chain)})\n` +
               `Порог: ${percent}%\n\n` +
               `Первый алерт будет отправлен, когда цена изменится на ${percent}% от текущей.`
