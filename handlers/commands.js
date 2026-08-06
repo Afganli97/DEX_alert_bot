@@ -449,7 +449,7 @@ async function handleMessage(msg) {
       let failCount = 0;
 
       for (const user of activeUsers) {
-        const ok = await sendTelegram(user._id, text);
+        const ok = await sendTelegram(user._id, escapeHtml(text));
         if (ok) successCount++;
         else failCount++;
       }
