@@ -434,14 +434,16 @@ async function handleMessage(msg) {
 
     // ---------------------- States ----------------------
     if (state === 'awaiting_broadcast_message') {
-      const activeUsers = await usersCollection.find({ status: 'active' }).toArray();
-
-      if (activeUsers.length > 1000) {
-        await sendTelegram(chatId, `⚠️ Превышено максимальное количество получателей (${activeUsers.length}). Максимум: 1000.`);
+      // Check limit before fetching all users to avoid unnecessary DB/memory load
+      const activeCount = await usersCollection.countDocuments({ status: 'active' });
+      if (activeCount > 1000) {
+        await sendTelegram(chatId, `⚠️ Превышено максимальное количество получателей (${activeCount}). Максимум: 1000.`);
         session.state = null;
         session.pendingData = {};
         return;
       }
+
+      const activeUsers = await usersCollection.find({ status: 'active' }).toArray();
 
       let successCount = 0;
       let failCount = 0;
