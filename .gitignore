@@ -1,2 +1,6 @@
 node_modules
 .env
+EXECUTION_LOG.md
+__pycache__/
+*.pyc
+.DS_Store

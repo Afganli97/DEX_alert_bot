@@ -2,7 +2,7 @@
 // Command handlers - all bot commands
 // ==============================
 
-const { escapeHtml, sendTelegram, sleep } = require('../lib/telegram');
+const { escapeHtml, sendTelegram } = require('../lib/telegram');
 const { ensureUser, isAdmin, markUserBlocked } = require('../lib/users');
 const { ObjectId } = require('mongodb');
 
@@ -114,6 +114,14 @@ async function addAlert(ownerId, chain, address, name, changePercent = 10) {
     throw new Error('Invalid changePercent value');
   }
 
+  // Enforce per-user token limit (default 20 if user has no maxTokens set)
+  const currentCount = await alertsCollection.countDocuments({ ownerId });
+  const user = await usersCollection.findOne({ _id: ownerId });
+  const limit = user?.maxTokens ?? 20;
+  if (currentCount >= limit) {
+    throw new Error(`TOKEN_LIMIT_REACHED:${limit}`);
+  }
+
   await alertsCollection.insertOne({
     ownerId,
     source: 'dex',
@@ -205,24 +213,50 @@ async function updateAllThresholds(ownerId, newPercent) {
  */
 async function fetchTokenInfo(address) {
   const url = `https://api.dexscreener.com/latest/dex/tokens/${address}`;
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
-    const res = await fetch(url, { signal: controller.signal });
-    clearTimeout(timeout);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    const pairs = data?.pairs;
-    if (!pairs || pairs.length === 0) return null;
-    const bestPair = pairs.sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))[0];
-    return {
-      name: (bestPair.baseToken?.symbol || 'unknown').toLowerCase(),
-      chain: bestPair.chainId || 'unknown',
-      address: address,
-    };
-  } catch (e) {
-    return null;
+  const maxRetries = 3;
+  let delay = 2000;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
+      const res = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeout);
+
+      if (res.status === 429) {
+        console.log(`⚠️ fetchTokenInfo: 429 Too Many Requests, попытка ${attempt + 1}/${maxRetries}, ждём ${delay / 1000}с...`);
+        await new Promise(r => setTimeout(r, delay));
+        delay *= 2;
+        continue;
+      }
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+      const pairs = data?.pairs;
+      if (!pairs || pairs.length === 0) return null;
+      const bestPair = pairs.sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))[0];
+      return {
+        name: (bestPair.baseToken?.symbol || 'unknown').toLowerCase(),
+        chain: bestPair.chainId || 'unknown',
+        address: address,
+      };
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        console.log(`⏱️ fetchTokenInfo: Timeout, попытка ${attempt + 1}/${maxRetries}`);
+      } else {
+        console.error(`fetchTokenInfo error (attempt ${attempt + 1}/${maxRetries}):`, err.message);
+      }
+      if (attempt < maxRetries - 1) {
+        await new Promise(r => setTimeout(r, delay));
+        delay *= 2;
+      }
+    }
   }
+  console.error(`❌ fetchTokenInfo: не удалось получить данные после ${maxRetries} попыток`);
+  return null;
 }
 
 // ============ Message Handler ============
@@ -551,7 +585,10 @@ async function handleMessage(msg) {
               `Первый алерт будет отправлен, когда цена изменится на ${percent}% от текущей.`
           );
         } catch (e) {
-          if (e.code === 11000) {
+          if (e.message && e.message.startsWith('TOKEN_LIMIT_REACHED:')) {
+            const limit = e.message.split(':')[1];
+            await sendTelegram(chatId, `❌ Лимит ${limit} токенов достигнут. Удалите ненужные токены, чтобы добавить новый.`);
+          } else if (e.code === 11000) {
             await sendTelegram(chatId, '❌ Этот токен уже отслеживается в вашем списке.');
           } else {
             console.error('Error adding alert:', e);
