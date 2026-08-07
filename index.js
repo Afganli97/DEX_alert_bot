@@ -41,9 +41,10 @@ async function initializeModules() {
 async function startPolling() {
   const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
   
-  // Валидация токена бота
-  if (!TELEGRAM_TOKEN || TELEGRAM_TOKEN.trim() === '') {
-    throw new Error('TELEGRAM_TOKEN is not set in environment variables');
+  // Валидация формата токена бота (идентификатор:строка)
+  const tokenPattern = /^\d{9,10}:\w{35,}$/;
+  if (!tokenPattern.test(TELEGRAM_TOKEN.trim())) {
+    throw new Error('TELEGRAM_TOKEN has invalid format');
   }
 
   const TELEGRAM_API = `https://api.telegram.org/bot${TELEGRAM_TOKEN.trim()}`;

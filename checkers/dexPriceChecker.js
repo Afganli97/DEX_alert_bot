@@ -20,6 +20,13 @@ function initCollections(alerts, users) {
 }
 
 /**
+ * Cache for blocked user IDs to avoid repeated DB queries.
+ * Structure: { set: Set<chatId>, updatedAt: number }
+ */
+let blockedUsersCache = { set: new Set(), updatedAt: 0 };
+const BLOCKED_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+/**
  * Format price for display
  * @param {number} price - Price value
  * @returns {string} Formatted price
@@ -104,14 +111,21 @@ async function getDexAlerts() {
 }
 
 /**
- * Get set of blocked user IDs
+ * Get set of blocked user IDs with caching.
  * @returns {Promise<Set>} Set of blocked chat IDs
  */
 async function getBlockedUsers() {
-  const blockedUsersSet = new Set();
-  const blockedCursor = await usersCollection.find({ status: 'blocked' }, { projection: { _id: 1 } });
-  await blockedCursor.forEach(doc => blockedUsersSet.add(doc._id));
-  return blockedUsersSet;
+  const now = Date.now();
+  if (now - blockedUsersCache.updatedAt < BLOCKED_CACHE_TTL_MS) {
+    return blockedUsersCache.set;
+  }
+
+  const set = new Set();
+  const cursor = await usersCollection.find({ status: 'blocked' }, { projection: { _id: 1 } });
+  await cursor.forEach(doc => set.add(doc._id));
+
+  blockedUsersCache = { set, updatedAt: now };
+  return set;
 }
 
 /**

@@ -3,12 +3,16 @@
   "version": "2.0.0",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "test": "jest",
+    "lint": "eslint ."
   },
   "dependencies": {
     "dotenv": "^17.4.2",
-    "express": "^4.19.2",
-    "mongodb": "^5.9.0",
-    "node-fetch": "2.6.9"
+    "mongodb": "^5.9.0"
+  },
+  "devDependencies": {
+    "eslint": "^9.39.5",
+    "jest": "^30.4.2"
   }
 }
