@@ -5,6 +5,7 @@ require('dotenv').config();
 const { connectToMongo, closeMongo } = require('./lib/db');
 const { initUsers, ensureUser, isAdmin, markUserBlocked } = require('./lib/users');
 const { startScheduler } = require('./scheduler');
+const { startWebhookServer } = require('./webhookServer');
 
 // Telegram polling will be started in this file
 
@@ -128,8 +129,34 @@ async function main() {
     };
     startScheduler(ctx);
 
-    // Start polling
-    startPolling().catch(console.error);
+    // Start webhook server (replaces long polling)
+    startWebhookServer();
+    // Register webhook with Telegram (once per start)
+    await setTelegramWebhook();
+  const token = process.env.TELEGRAM_TOKEN;
+  const webhookUrl = process.env.WEBHOOK_URL;
+  if (!webhookUrl) {
+    console.warn('WEBHOOK_URL not set in .env – skipping webhook registration');
+    return;
+  }
+  const api = `https://api.telegram.org/bot${token}/setWebhook`;
+  try {
+    const res = await fetch(api, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: webhookUrl }),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      console.error('❌ Ошибка регистрации вебхука:', data);
+    } else {
+      console.log('✅ Вебхук успешно установлен:', data.result);
+    }
+  } catch (err) {
+    console.error('❌ Ошибка при попытке установить вебхук:', err);
+  }
+}
+
 
     // Handle shutdown signals
     process.on('SIGINT', shutdown);
