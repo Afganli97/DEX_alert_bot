@@ -3,7 +3,7 @@
 // ==============================
 
 const config = require('./config');
-const dexPriceChecker = require('../checkers/dexPriceChecker');
+const dexPriceChecker = require('./checkers/dexPriceChecker');
 
 // Checkers configuration with metadata
 const checkers = [
