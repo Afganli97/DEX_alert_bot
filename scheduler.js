@@ -2,7 +2,7 @@
 // Scheduler - starts and manages all checkers
 // ==============================
 
-const config = require('../config');
+const config = require('./config');
 const dexPriceChecker = require('../checkers/dexPriceChecker');
 
 // Checkers configuration with metadata
