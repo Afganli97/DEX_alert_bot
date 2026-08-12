@@ -2,6 +2,8 @@
 // Session Commands (Multi-step flows)
 // ==============================
 
+const { escapeHtml } = require('../lib/telegram');
+
 let alertsCollection = null;
 let usersCollection = null;
 
@@ -416,10 +418,10 @@ async function handleResetAnchors(chatId, sendTelegram, resetBaselines) {
  * @param {Object} session - User session object
  * @param {Function} sendTelegram - Function to send telegram message
  */
-function handleCancel(chatId, session, sendTelegram) {
+async function handleCancel(chatId, session, sendTelegram) {
   session.state = null;
   session.pendingData = {};
-  sendTelegram(chatId, '🚫 Текущее действие отменено.');
+  await sendTelegram(chatId, '🚫 Текущее действие отменено.');
 }
 
 module.exports = {
