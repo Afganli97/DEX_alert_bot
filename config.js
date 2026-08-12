@@ -20,4 +20,5 @@ module.exports = {
   telegram: {
     queueDelayMs: num('TG_QUEUE_DELAY_MS', 35, 1),
   },
+  num,
 };

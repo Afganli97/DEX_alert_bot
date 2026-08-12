@@ -24,7 +24,7 @@ function initCollections(alerts, users) {
  * @param {Function} isAdmin - Function to check admin status
  * @param {Object} session - User session object
  */
-function handleStartHelp(chatId, sendTelegram, isAdmin, session) {
+async function handleStartHelp(chatId, sendTelegram, isAdmin, session) {
   session.state = null;
   session.pendingData = {};
   let helpText = '<b>📖 Команды бота:</b>\n\n' +
@@ -43,7 +43,7 @@ function handleStartHelp(chatId, sendTelegram, isAdmin, session) {
     '/privacy — показать политику конфиденциальности\n' +
     '/help — эта справка\n\n' +
     '👋 Добро пожаловать! Используйте /add для добавления первого токена.';
-  sendTelegram(chatId, helpText);
+  await sendTelegram(chatId, helpText);
 }
 
 /**

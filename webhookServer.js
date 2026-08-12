@@ -9,7 +9,11 @@ function startWebhookServer() {
 
   const port = process.env.WEBHOOK_PORT || 3000;
   const path = process.env.WEBHOOK_PATH || '/webhook';
-  const secret = process.env.WEBHOOK_SECRET || null;
+  const secret = process.env.WEBHOOK_SECRET;
+  if (!secret) {
+    console.error('❌ WEBHOOK_SECRET is not set in .env. Webhook server will not start securely.');
+    return;
+  }
 
   app.post(path, async (req, res) => {
     if (secret) {

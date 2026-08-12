@@ -6,6 +6,7 @@
 const config = require('../config');
 const { evaluate } = require('../conditionEvaluator');
 const { escapeHtml, sendTelegram } = require('../lib/telegram');
+const { fetchWithRetry } = require('../lib/fetchWithRetry');
 
 let alertsCollection = null;
 let usersCollection = null;
@@ -25,7 +26,7 @@ function initCollections(alerts, users) {
  * Structure: { set: Set<chatId>, updatedAt: number }
  */
 let blockedUsersCache = { set: new Set(), updatedAt: 0 };
-const BLOCKED_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const BLOCKED_CACHE_TTL_MS = config.num('BLOCKED_USERS_CACHE_TTL_MS', 5 * 60 * 1000, 60000);
 
 /**
  * Format price for display
@@ -53,7 +54,7 @@ async function fetchBatchPrices(chainId, addresses) {
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15000);
-      const res = await fetch(url, { signal: controller.signal });
+      const res = await fetchWithRetry(url, { signal: controller.signal });
       clearTimeout(timeoutId);
 
       if (res.status === 429) {

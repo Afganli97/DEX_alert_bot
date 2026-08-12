@@ -3,8 +3,7 @@
 // ==============================
 
 const { escapeHtml, sendTelegram } = require('../lib/telegram');
-const { ensureUser, isAdmin, markUserBlocked } = require('../lib/users');
-const { ObjectId } = require('mongodb');
+const { ensureUser, isAdmin } = require('../lib/users');
 
 // Import all command modules
 const alertCommands = require('./alertCommands');
@@ -33,12 +32,6 @@ function initCollections(alerts, users) {
   sessionCommands.initCollections(alerts, users);
 }
 
-// Sessions for multi-step commands
-const sessions = new Map();
-
-// Rate limiting for commands
-const commandTimestamps = new Map();
-
 // ============ Message Handler ============
 
 /**
@@ -46,8 +39,8 @@ const commandTimestamps = new Map();
  * @param {Object} msg - Telegram message object
  */
 async function handleMessage(msg) {
+  const chatId = msg.chat?.id?.toString() || 'unknown';
   try {
-    const chatId = msg.chat.id.toString();
     const from = msg.from;
     const username = from.username || null;
     const text = msg.text?.trim();
@@ -66,36 +59,15 @@ async function handleMessage(msg) {
     // Get session
     const session = sessionCommands.getSession(chatId);
     const state = session.state ?? null;
-    const data = session.pendingData ?? {};
 
     // ---------------------- Commands ----------------------
     if (text === '/start' || text === '/help') {
-      session.state = null;
-      session.pendingData = {};
-      let helpText = '<b>📖 Команды бота:</b>\n\n' +
-        '/add — добавить токен\n' +
-        '/remove — удалить токен (выбор из списка, подтверждение)\n' +
-        '/list — показать ваш список отслеживаемых токенов\n' +
-        '/change — изменить процент для одного токена\n' +
-        '/change_all — установить одинаковый процент для всех ваших токенов\n' +
-        '/reset_anchors — сбросить якорные цены ваших токенов\n' +
-        '/cancel — отменить текущее действие\n' +
-        '/stop — отписаться от всех алертов (удаляет ваши данные)\n';
-      if (isAdmin(chatId)) {
-        helpText += '/broadcast — рассылка сообщения всем пользователям (только для админа)\n';
-      }
-      helpText += '/delete_my_data — удалить все ваши данные\n' +
-        '/privacy — показать политику конфиденциальности\n' +
-        '/help — эта справка\n\n' +
-        '👋 Добро пожаловать! Используйте /add для добавления первого токена.';
-      await sendTelegram(chatId, helpText);
+      await utilityCommands.handleStartHelp(chatId, sendTelegram, isAdmin, session);
       return;
     }
 
     if (text === '/cancel') {
-      session.state = null;
-      session.pendingData = {};
-      await sendTelegram(chatId, '🚫 Текущее действие отменено.');
+      await sessionCommands.handleCancel(chatId, session, sendTelegram);
       return;
     }
 
@@ -203,6 +175,7 @@ async function handleMessage(msg) {
 
   } catch (e) {
     console.error('handleMessage error:', e);
+    await sendTelegram(chatId, '❌ Произошла ошибка. Попробуйте позже.');
   }
 }
 
