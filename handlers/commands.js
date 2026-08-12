@@ -39,8 +39,8 @@ function initCollections(alerts, users) {
  * @param {Object} msg - Telegram message object
  */
 async function handleMessage(msg) {
+  const chatId = msg.chat?.id?.toString() || 'unknown';
   try {
-    const chatId = msg.chat.id.toString();
     const from = msg.from;
     const username = from.username || null;
     const text = msg.text?.trim();
