@@ -412,10 +412,11 @@ async function handleResetAnchors(chatId, sendTelegram, resetBaselines) {
 
 /**
  * Handle cancel command
+ * @param {string} chatId - User's chat ID
  * @param {Object} session - User session object
  * @param {Function} sendTelegram - Function to send telegram message
  */
-function handleCancel(session, sendTelegram) {
+function handleCancel(chatId, session, sendTelegram) {
   session.state = null;
   session.pendingData = {};
   sendTelegram(chatId, '🚫 Текущее действие отменено.');
