@@ -17,12 +17,12 @@ describe('escapeHtml', () => {
     expect(escapeHtml('a > b')).toBe('a &gt; b');
   });
 
-  test('does not escape double quote (not in implementation)', () => {
-    expect(escapeHtml('a "b" c')).toBe('a "b" c');
+  test('escapes double quote', () => {
+    expect(escapeHtml('a "b" c')).toBe('a &quot;b&quot; c');
   });
 
-  test('does not escape single quote (not in implementation)', () => {
-    expect(escapeHtml("a 'b' c")).toBe("a 'b' c");
+  test('escapes single quote', () => {
+    expect(escapeHtml("a 'b' c")).toBe("a &#x27;b&#x27; c");
   });
 
   test('leaves backslash as single character', () => {
