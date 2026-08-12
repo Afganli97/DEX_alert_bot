@@ -1,6 +1,6 @@
 # DEX Alert Bot
 
-A multi-user Telegram bot that monitors token prices via DexScreener and GeckoTerminal APIs.
+A multi-user Telegram bot that monitors token prices via DexScreener API.
 
 ## Features
 
@@ -96,24 +96,29 @@ DEX_alert_bot/
 │   ├── users.js              # User management
 │   └── fetchWithRetry.js     # HTTP fetch with retry logic
 ├── test/
-│   ├── config.test.js
+│   ├── alertCommands.test.js
+│   ├── commands.test.js
 │   ├── conditionEvaluator.test.js
+│   ├── config.test.js
 │   ├── fetchWithRetry.test.js
 │   ├── formatPrice.test.js
 │   ├── isValidTokenAddress.test.js
+│   ├── sessionCommands.test.js
 │   ├── telegramQueue.test.js
 │   └── users.test.js
 ├── config.js                 # Configuration management
 ├── conditionEvaluator.js     # Alert condition evaluation
 ├── index.js                  # Main entry point
 ├── scheduler.js              # Task scheduler
-└── webhookServer.js          # Webhook HTTP server
+├── webhookServer.js          # Webhook HTTP server
+├── SECURITY.md               # Security policy
+└── eslint.config.js          # ESLint configuration
 ```
 
 ### Key Components
 
 1. **DexPriceChecker**: Fetches token prices from DexScreener API and evaluates alert conditions
-2. **TelegramQueue**: Manages outgoing message queue with rate limiting (~28 messages/second)
+2. **TelegramQueue**: Manages outgoing message queue with rate limiting (~28 messages/second), handles 429 rate limits by moving problematic messages to the end of the queue
 3. **SessionManager**: Handles multi-step command flows (add, remove, change tokens)
 4. **ConditionEvaluator**: Evaluates whether price changes trigger alerts
 
@@ -124,6 +129,7 @@ DEX_alert_bot/
 - Rate limiting to prevent abuse
 - Webhook secret verification
 - MongoDB connection pooling with limits
+- Blocked users caching to reduce DB load
 
 ## License
 
