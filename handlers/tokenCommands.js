@@ -3,6 +3,7 @@
 // ==============================
 
 let alertsCollection = null;
+const { fetchWithRetry } = require('../lib/fetchWithRetry');
 let usersCollection = null;
 
 /**
@@ -31,7 +32,7 @@ async function fetchTokenInfo(address) {
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 15000);
-      const res = await fetch(url, { signal: controller.signal });
+      const res = await fetchWithRetry(url, { signal: controller.signal });
       clearTimeout(timeout);
 
       if (res.status === 429) {

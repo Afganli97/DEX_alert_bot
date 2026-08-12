@@ -6,6 +6,7 @@
 const config = require('../config');
 const { evaluate } = require('../conditionEvaluator');
 const { escapeHtml, sendTelegram } = require('../lib/telegram');
+const { fetchWithRetry } = require('../lib/fetchWithRetry');
 
 let alertsCollection = null;
 let usersCollection = null;
@@ -53,7 +54,7 @@ async function fetchBatchPrices(chainId, addresses) {
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15000);
-      const res = await fetch(url, { signal: controller.signal });
+      const res = await fetchWithRetry(url, { signal: controller.signal });
       clearTimeout(timeoutId);
 
       if (res.status === 429) {
