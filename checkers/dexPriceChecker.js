@@ -25,7 +25,7 @@ function initCollections(alerts, users) {
  * Structure: { set: Set<chatId>, updatedAt: number }
  */
 let blockedUsersCache = { set: new Set(), updatedAt: 0 };
-const BLOCKED_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const BLOCKED_CACHE_TTL_MS = config.num('BLOCKED_USERS_CACHE_TTL_MS', 5 * 60 * 1000, 60000);
 
 /**
  * Format price for display

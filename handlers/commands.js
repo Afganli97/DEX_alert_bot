@@ -175,6 +175,7 @@ async function handleMessage(msg) {
 
   } catch (e) {
     console.error('handleMessage error:', e);
+    await sendTelegram(chatId, '❌ Произошла ошибка. Попробуйте позже.');
   }
 }
 

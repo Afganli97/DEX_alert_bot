@@ -58,10 +58,6 @@ async function addAlert(ownerId, chain, address, name, changePercent = 10) {
     throw new Error('Invalid token address');
   }
 
-  if (name && (name.length > 100 || typeof name !== 'string')) {
-    name = name.slice(0, 100);
-  }
-
   const trimmedName = (name || '').slice(0, 30);
 
   // Validate changePercent
