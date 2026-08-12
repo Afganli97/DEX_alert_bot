@@ -1,5 +1,6 @@
 // ==============================
 // DEX Price Checker - fetches prices from DexScreener and sends alerts
+// Requires Node.js 18+ for global fetch (or add node-fetch dependency)
 // ==============================
 
 const config = require('../config');

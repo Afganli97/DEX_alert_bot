@@ -36,46 +36,8 @@ function initCollections(alerts, users) {
 // Sessions for multi-step commands
 const sessions = new Map();
 
-/**
- * Get or create user session
- * @param {string} chatId - User's chat ID
- * @returns {Object} Session object
- */
-function getSession(chatId) {
-  if (!sessions.has(chatId)) {
-    sessions.set(chatId, { state: null, pendingData: {}, lastActivity: Date.now() });
-  }
-  const s = sessions.get(chatId);
-  s.lastActivity = Date.now();
-  return s;
-}
-
-// Clean up inactive sessions every 5 minutes
-setInterval(() => {
-  const cutoff = Date.now() - 30 * 60 * 1000; // 30 minutes
-  for (const [chatId, session] of sessions) {
-    if (session.lastActivity < cutoff) {
-      sessions.delete(chatId);
-    }
-  }
-}, 5 * 60 * 1000);
-
 // Rate limiting for commands
 const commandTimestamps = new Map();
-
-/**
- * Check if user is rate limited
- * @param {string} chatId - User's chat ID
- * @param {number} maxPerMinute - Max commands per minute
- * @returns {boolean} True if rate limited
- */
-function isRateLimited(chatId, maxPerMinute = 10) {
-  const now = Date.now();
-  const arr = (commandTimestamps.get(chatId) || []).filter(t => now - t < 60000);
-  arr.push(now);
-  commandTimestamps.set(chatId, arr);
-  return arr.length > maxPerMinute;
-}
 
 // ============ Message Handler ============
 
@@ -96,13 +58,13 @@ async function handleMessage(msg) {
     await ensureUser(chatId, username);
 
     // Rate limit check
-    if (isRateLimited(chatId)) {
+    if (sessionCommands.isRateLimited(chatId)) {
       await sendTelegram(chatId, '⚠️ Слишком много запросов. Пожалуйста, подождите перед отправкой следующей команды.');
       return;
     }
 
     // Get session
-    const session = getSession(chatId);
+    const session = sessionCommands.getSession(chatId);
     const state = session.state ?? null;
     const data = session.pendingData ?? {};
 

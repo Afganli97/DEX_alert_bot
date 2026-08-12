@@ -5,8 +5,7 @@ require('dotenv').config();
 const { connectToMongo, closeMongo } = require('./lib/db');
 const { initUsers, ensureUser, isAdmin, markUserBlocked } = require('./lib/users');
 const { startScheduler } = require('./scheduler');
-
-// Telegram polling will be started in this file
+const { startWebhookServer } = require('./webhookServer');
 
 let db;
 let usersCollection;
@@ -37,59 +36,28 @@ async function initializeModules() {
   console.log('✅ Все модули инициализированы');
 }
 
-// Start Telegram long polling
-async function startPolling() {
-  const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
-  
-  // Валидация формата токена бота (идентификатор:строка)
-  const tokenPattern = /^\d{9,10}:\w{35,}$/;
-  if (!tokenPattern.test(TELEGRAM_TOKEN.trim())) {
-    throw new Error('TELEGRAM_TOKEN has invalid format');
+async function setTelegramWebhook() {
+  const token = process.env.TELEGRAM_TOKEN;
+  const webhookUrl = process.env.WEBHOOK_URL;
+  if (!webhookUrl) {
+    console.warn('WEBHOOK_URL not set in .env – skipping webhook registration');
+    return;
   }
-
-  const TELEGRAM_API = `https://api.telegram.org/bot${TELEGRAM_TOKEN.trim()}`;
-  let offset = 0;
-
-  console.log('🚀 Запуск long polling...');
-
-  while (!global.shuttingDown) {
-    try {
-      const res = await fetch(`${TELEGRAM_API}/getUpdates?offset=${offset}&timeout=30`, {
-        signal: AbortSignal.timeout(30000),
-      });
-      
-      if (!res.ok) {
-        console.error(`HTTP error: ${res.status}`);
-        await new Promise(r => setTimeout(r, 5000));
-        continue;
-      }
-      
-      const data = await res.json();
-
-      if (!data.ok) {
-        console.error('Telegram getUpdates error:', data);
-        await new Promise(r => setTimeout(r, 5000)); // don't hammer API without delay
-        continue;
-      }
-
-      if (data.result) {
-        for (const update of data.result) {
-          offset = update.update_id + 1;
-          if (update.message) {
-            // Handle message using the initialized command handlers
-            const commandHandlers = require('./handlers/commands');
-            await commandHandlers.handleMessage(update.message);
-          }
-        }
-      }
-    } catch (err) {
-      if (err.name === 'AbortError') {
-        console.error('Timeout в polling');
-      } else {
-        console.error('Ошибка в long polling:', err);
-      }
-      await new Promise(r => setTimeout(r, 5000)); // Wait 5 seconds before retrying
+  const api = `https://api.telegram.org/bot${token}/setWebhook`;
+  try {
+    const res = await fetch(api, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: webhookUrl }),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      console.error('❌ Ошибка регистрации вебхука:', data);
+    } else {
+      console.log('✅ Вебхук успешно установлен:', data.result);
     }
+  } catch (err) {
+    console.error('❌ Ошибка при попытке установить вебхук:', err);
   }
 }
 
@@ -118,7 +86,7 @@ async function main() {
     // Initialize modules
     await initializeModules();
 
-    // Set up global shuttingDown flag for scheduler and polling
+    // Set up global shuttingDown flag for scheduler
     global.shuttingDown = false;
 
     // Start scheduler — ctx.shuttingDown is a getter that mirrors global.shuttingDown
@@ -126,10 +94,14 @@ async function main() {
       get shuttingDown() { return global.shuttingDown; },
       isChecking: false,
     };
+
     startScheduler(ctx);
 
-    // Start polling
-    startPolling().catch(console.error);
+    // Start webhook server
+    startWebhookServer();
+
+    // Register webhook with Telegram (once per start)
+    await setTelegramWebhook();
 
     // Handle shutdown signals
     process.on('SIGINT', shutdown);
