@@ -3,7 +3,8 @@ node_modules
 EXECUTION_LOG.md
 __pycache__/
 *.pyc
-.DS_StoreAUDIT.md
+.DS_Store
+AUDIT.md
 COVERAGE.md
 EXECUTION_LOG.md
 node_modules/
