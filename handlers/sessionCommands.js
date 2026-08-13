@@ -35,14 +35,25 @@ function getSession(chatId) {
 }
 
 // Clean up inactive sessions every 5 minutes
-setInterval(() => {
-  const cutoff = Date.now() - 30 * 60 * 1000; // 30 minutes
-  for (const [chatId, session] of sessions) {
-    if (session.lastActivity < cutoff) {
-      sessions.delete(chatId);
+let sessionCleanupInterval = null;
+
+function startSessionCleanup() {
+  sessionCleanupInterval = setInterval(() => {
+    const cutoff = Date.now() - 30 * 60 * 1000; // 30 minutes
+    for (const [chatId, session] of sessions) {
+      if (session.lastActivity < cutoff) {
+        sessions.delete(chatId);
+      }
     }
+  }, 5 * 60 * 1000);
+}
+
+function stopSessionCleanup() {
+  if (sessionCleanupInterval) {
+    clearInterval(sessionCleanupInterval);
+    sessionCleanupInterval = null;
   }
-}, 5 * 60 * 1000);
+}
 
 // Rate limiting for commands
 const commandTimestamps = new Map();
