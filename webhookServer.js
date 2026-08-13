@@ -12,7 +12,7 @@ function startWebhookServer() {
   const secret = process.env.WEBHOOK_SECRET;
   if (!secret) {
     console.error('❌ WEBHOOK_SECRET is not set in .env. Webhook server will not start securely.');
-    return;
+    throw new Error('WEBHOOK_SECRET is required. Set it in .env before starting the bot.');
   }
 
   app.post(path, async (req, res) => {
