@@ -13,6 +13,7 @@ describe('db.js', () => {
     };
     mockDb = {
       collection: jest.fn().mockReturnValue(mockAlertsCollection),
+      command: jest.fn().mockResolvedValue({ ok: 1 }),
     };
     mockMongoClient = {
       connect: jest.fn().mockResolvedValue(undefined),
