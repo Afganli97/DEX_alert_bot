@@ -6,6 +6,7 @@ const { connectToMongo, closeMongo } = require('./lib/db');
 const { initUsers, ensureUser, isAdmin, markUserBlocked } = require('./lib/users');
 const { startScheduler } = require('./scheduler');
 const { startWebhookServer } = require('./webhookServer');
+const { startSessionCleanup, stopSessionCleanup } = require('./handlers/sessionCommands');
 
 let db;
 let usersCollection;
@@ -72,6 +73,7 @@ async function shutdown() {
   }
 
   await closeMongo();
+  stopSessionCleanup();
   console.log('✅ Остановка завершена');
   process.exit(0);
 }
@@ -96,6 +98,9 @@ async function main() {
     };
 
     startScheduler(ctx);
+
+    // Start session cleanup
+    startSessionCleanup();
 
     // Start webhook server
     startWebhookServer();

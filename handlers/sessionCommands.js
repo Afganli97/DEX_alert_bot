@@ -439,6 +439,8 @@ module.exports = {
   initCollections,
   getSession,
   isRateLimited,
+  startSessionCleanup,
+  stopSessionCleanup,
   // Broadcast
   handleBroadcastStart,
   handleBroadcastMessage,

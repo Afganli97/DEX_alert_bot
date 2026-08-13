@@ -11,14 +11,26 @@ function num(envVar, fallback, min = 0) {
   return v;
 }
 
+/**
+ * Default configuration values for DEX price checker.
+ * Can be overridden via environment variables.
+ */
+const DEFAULTS = {
+  DEX_CYCLE_INTERVAL_MS: 20000,
+  DEX_BATCH_SIZE: 30,
+  DEX_BATCH_DELAY_MS: 1000,
+  TG_QUEUE_DELAY_MS: 35,
+};
+
 module.exports = {
+  DEFAULTS,
   dexPrice: {
-    intervalMs: num('DEX_CYCLE_INTERVAL_MS', 20000, 1),
-    batchSize: num('DEX_BATCH_SIZE', 30, 1),
-    batchDelayMs: num('DEX_BATCH_DELAY_MS', 1000, 0),
+    intervalMs: num('DEX_CYCLE_INTERVAL_MS', DEFAULTS.DEX_CYCLE_INTERVAL_MS, 1),
+    batchSize: num('DEX_BATCH_SIZE', DEFAULTS.DEX_BATCH_SIZE, 1),
+    batchDelayMs: num('DEX_BATCH_DELAY_MS', DEFAULTS.DEX_BATCH_DELAY_MS, 0),
   },
   telegram: {
-    queueDelayMs: num('TG_QUEUE_DELAY_MS', 35, 1),
+    queueDelayMs: num('TG_QUEUE_DELAY_MS', DEFAULTS.TG_QUEUE_DELAY_MS, 1),
   },
   num,
 };
