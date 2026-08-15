@@ -50,7 +50,7 @@ async function fetchBatchPrices(chainId, addresses) {
   const res = await fetchWithRetry(url);
 
   if (!res.ok) {
-    console.log(`❌ HTTP ${res.status} для ${chainId} батча`);
+    console.debug(`❌ HTTP ${res.status} для ${chainId} батча`);
     return {};
   }
 
@@ -125,11 +125,11 @@ async function runCycle(ctx) {
   try {
     const allAlerts = await getDexAlerts();
     if (allAlerts.length === 0) {
-      console.log('⏸️ Нет активных DEX алертов');
+      console.debug('⏸️ Нет активных DEX алертов');
       return;
     }
 
-    console.log(`🔄 DEX проверка: ${allAlerts.length} алертов`);
+    console.debug(`🔄 DEX проверка: ${allAlerts.length} алертов`);
 
     // Get blocked users
     const blockedUsersSet = await getBlockedUsers();
@@ -210,7 +210,7 @@ async function runCycle(ctx) {
       }
     }
 
-    console.log(`✅ DEX цикл завершён: ${alerts.length} уведомлений отправлено`);
+    console.debug(`✅ DEX цикл завершён: ${alerts.length} уведомлений отправлено`);
   } finally {
     ctx.isChecking = false;
   }
