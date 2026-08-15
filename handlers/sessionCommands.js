@@ -104,6 +104,7 @@ async function handleBroadcastMessage(chatId, text, sendTelegram, escapeHtml, se
   // Check limit before fetching all users to avoid unnecessary DB/memory load
   const activeCount = await usersCollection.countDocuments({ status: 'active' });
   if (activeCount > 1000) {
+    console.warn('Broadcast limit exceeded:', activeCount);
     sendTelegram(chatId, `⚠️ Превышено максимальное количество получателей (${activeCount}). Максимум: 1000.`);
     session.state = null;
     session.pendingData = {};
