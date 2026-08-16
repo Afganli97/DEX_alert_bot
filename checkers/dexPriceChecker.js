@@ -221,6 +221,8 @@ module.exports = {
   runCycle,
   fetchBatchPrices,
   getDexAlerts,
+  getBlockedUsers,
+  updateAlertBaseline,
   formatPrice,
   type: 'dex_price', // Для scheduler
 };

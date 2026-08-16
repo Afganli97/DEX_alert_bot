@@ -49,4 +49,47 @@ describe('db.js', () => {
     const { connectToMongo } = require('../lib/db');
     await expect(connectToMongo('invalid-uri')).rejects.toThrow('Invalid MongoDB URI format');
   });
+
+  describe('closeMongo', () => {
+    test('closes client when connected', async () => {
+      const { connectToMongo, closeMongo } = require('../lib/db');
+      await connectToMongo('mongodb://localhost:27017/test');
+      
+      await closeMongo();
+      
+      expect(mockMongoClient.close).toHaveBeenCalled();
+    });
+
+    test('does not throw when client is null', async () => {
+      const { closeMongo } = require('../lib/db');
+      
+      await expect(closeMongo()).resolves.toBeUndefined();
+    });
+
+    test('handles close error gracefully', async () => {
+      mockMongoClient.close.mockRejectedValueOnce(new Error('Close error'));
+      const { connectToMongo, closeMongo } = require('../lib/db');
+      await connectToMongo('mongodb://localhost:27017/test');
+      
+      await closeMongo();
+      
+      expect(mockMongoClient.close).toHaveBeenCalled();
+    });
+  });
+
+  describe('getDb', () => {
+    test('returns db after connection', async () => {
+      const { connectToMongo, getDb } = require('../lib/db');
+      await connectToMongo('mongodb://localhost:27017/test');
+      
+      const db = getDb();
+      expect(db).toBe(mockDb);
+    });
+
+    test('throws error when not connected', () => {
+      const { getDb } = require('../lib/db');
+      
+      expect(() => getDb()).toThrow('Database not initialized');
+    });
+  });
 });
