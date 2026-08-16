@@ -503,7 +503,7 @@ describe('sessionCommands.js', () => {
     });
 
     test('handles TOKEN_LIMIT_REACHED error', async () => {
-      const addAlert = jest.fn().mockRejectedValue(new Error('TOKEN_LIMIT_REACHED:20'));
+      const addAlert = jest.fn().mockRejectedValue(new Error('TOKEN_LIMIT_REACHED:5'));
       const sendTelegram = jest.fn();
       const session = {
         state: 'awaiting_add_confirm',
@@ -514,7 +514,7 @@ describe('sessionCommands.js', () => {
 
       expect(sendTelegram).toHaveBeenCalledWith(
         '123',
-        '❌ Лимит 20 токенов достигнут. Удалите ненужные токены, чтобы добавить новый.'
+        '❌ Лимит 5 токенов достигнут. Удалите ненужные токены, чтобы добавить новый.'
       );
     });
 

@@ -2,6 +2,8 @@
 // Admin Commands
 // ==============================
 
+const { getSubscriptionLimit } = require('../lib/users');
+
 let alertsCollection = null;
 let usersCollection = null;
 
@@ -93,13 +95,38 @@ async function handleAdminCommand(chatId, text, sendTelegram, isAdmin) {
       }
       const alertCount = await alertsCollection.countDocuments({ ownerId: targetId });
       const status = user.status ?? 'unknown';
+      const subscription = user.subscription ?? 'basic';
+      const subscriptionLimit = getSubscriptionLimit(subscription);
       await sendTelegram(chatId, `<b>👤 Инфо о пользователе ${targetId}:</b>\n` +
         `Статус: ${status}\n` +
+        `Подписка: ${subscription} (лимит: ${subscriptionLimit} токенов)\n` +
         `Количество алертов: ${alertCount}`);
       return true;
     }
+    case 'set_subscription': {
+      const targetId = parts[2];
+      const newSubscription = parts[3];
+      if (!targetId || !/^\d+$/.test(targetId)) {
+        await sendTelegram(chatId, 'Usage: /admin set_subscription <chatId> <basic|pro|premium>');
+        return true;
+      }
+      const validSubscriptions = ['basic', 'pro', 'premium'];
+      if (!validSubscriptions.includes(newSubscription)) {
+        await sendTelegram(chatId, '❌ Неверный тип подписки. Доступные: basic, pro, premium');
+        return true;
+      }
+      const user = await usersCollection.findOne({ _id: targetId });
+      if (!user) {
+        await sendTelegram(chatId, `❌ Пользователь ${targetId} не найден.`);
+        return true;
+      }
+      await usersCollection.updateOne({ _id: targetId }, { $set: { subscription: newSubscription } });
+      const limit = getSubscriptionLimit(newSubscription);
+      await sendTelegram(chatId, `✅ Подписка пользователя ${targetId} изменена на ${newSubscription} (лимит: ${limit} токенов).`);
+      return true;
+    }
     default:
-      await sendTelegram(chatId, 'Неизвестная подкоманда. Доступные: stats, block_user, unblock_user, reset_all_anchors, view_user');
+      await sendTelegram(chatId, 'Неизвестная подкоманда. Доступные: stats, block_user, unblock_user, reset_all_anchors, view_user, set_subscription');
       return true;
   }
 }

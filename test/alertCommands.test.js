@@ -27,7 +27,7 @@ describe('alertCommands.js', () => {
       countDocuments: jest.fn().mockResolvedValue(0),
     };
     mockUsersCollection = {
-      findOne: jest.fn().mockResolvedValue({ maxTokens: 20 }),
+      findOne: jest.fn().mockResolvedValue({ subscription: 'basic' }),
     };
     initCollections(mockAlertsCollection, mockUsersCollection);
   });
@@ -93,9 +93,9 @@ describe('alertCommands.js', () => {
     });
 
     test('throws when token limit reached', async () => {
-      mockAlertsCollection.countDocuments.mockResolvedValueOnce(20);
+      mockAlertsCollection.countDocuments.mockResolvedValueOnce(5);
       await expect(addAlert('123', 'ethereum', '0x1234567890123456789012345678901234567890', 'Test', 10))
-        .rejects.toThrow('TOKEN_LIMIT_REACHED:20');
+        .rejects.toThrow('TOKEN_LIMIT_REACHED:5');
     });
   });
 

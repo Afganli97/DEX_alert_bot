@@ -89,12 +89,36 @@ describe('adminCommands.js', () => {
       await handleAdminCommand('123', '/admin view_user 456', sendTelegram, () => true);
       expect(mockUsersCollection.findOne).toHaveBeenCalledWith({ _id: '456' });
       expect(sendTelegram.mock.calls[0][1]).toContain('Инфо о пользователе 456');
+      expect(sendTelegram.mock.calls[0][1]).toContain('Подписка:');
+    });
+
+    test('set_subscription with invalid targetId', async () => {
+      const sendTelegram = jest.fn().mockResolvedValue(true);
+      await handleAdminCommand('123', '/admin set_subscription abc basic', sendTelegram, () => true);
+      expect(sendTelegram).toHaveBeenCalledWith('123', 'Usage: /admin set_subscription <chatId> <basic|pro|premium>');
+      expect(mockUsersCollection.updateOne).not.toHaveBeenCalled();
+    });
+
+    test('set_subscription with invalid subscription', async () => {
+      const sendTelegram = jest.fn().mockResolvedValue(true);
+      await handleAdminCommand('123', '/admin set_subscription 456 invalid', sendTelegram, () => true);
+      expect(sendTelegram).toHaveBeenCalledWith('123', '❌ Неверный тип подписки. Доступные: basic, pro, premium');
+      expect(mockUsersCollection.updateOne).not.toHaveBeenCalled();
+    });
+
+    test('set_subscription with valid targetId and subscription', async () => {
+      const sendTelegram = jest.fn().mockResolvedValue(true);
+      await handleAdminCommand('123', '/admin set_subscription 456 pro', sendTelegram, () => true);
+      expect(mockUsersCollection.findOne).toHaveBeenCalledWith({ _id: '456' });
+      expect(mockUsersCollection.updateOne).toHaveBeenCalledWith({ _id: '456' }, { $set: { subscription: 'pro' } });
+      expect(sendTelegram).toHaveBeenCalledWith('123', expect.stringContaining('Подписка пользователя 456 изменена на pro'));
     });
 
     test('unknown subcommand', async () => {
       const sendTelegram = jest.fn().mockResolvedValue(true);
       await handleAdminCommand('123', '/admin unknown_cmd', sendTelegram, () => true);
       expect(sendTelegram.mock.calls[0][1]).toContain('Неизвестная подкоманда');
+      expect(sendTelegram.mock.calls[0][1]).toContain('set_subscription');
     });
   });
 });
