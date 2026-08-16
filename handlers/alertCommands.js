@@ -4,6 +4,7 @@
 
 const { ObjectId } = require('mongodb');
 const bs58 = require('bs58').default;
+const { getSubscriptionLimit } = require('../lib/users');
 
 let alertsCollection = null;
 let usersCollection = null;
@@ -73,10 +74,11 @@ async function addAlert(ownerId, chain, address, name, changePercent = 10) {
     throw new Error('Invalid changePercent value');
   }
 
-  // Enforce per-user token limit (default 20 if user has no maxTokens set)
+  // Enforce per-user token limit based on subscription
   const currentCount = await alertsCollection.countDocuments({ ownerId });
   const user = await usersCollection.findOne({ _id: ownerId });
-  const limit = user?.maxTokens ?? 20;
+  const subscription = user?.subscription || 'basic';
+  const limit = getSubscriptionLimit(subscription);
   if (currentCount >= limit) {
     throw new Error(`TOKEN_LIMIT_REACHED:${limit}`);
   }
