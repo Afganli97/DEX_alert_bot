@@ -20,6 +20,11 @@ const DEFAULTS = {
   DEX_BATCH_SIZE: 30,
   DEX_BATCH_DELAY_MS: 1000,
   TG_QUEUE_DELAY_MS: 35,
+  SUBSCRIPTION_LIMITS: {
+    basic: 5,
+    pro: 15,
+    premium: 50,
+  },
 };
 
 module.exports = {
@@ -31,6 +36,11 @@ module.exports = {
   },
   telegram: {
     queueDelayMs: num('TG_QUEUE_DELAY_MS', DEFAULTS.TG_QUEUE_DELAY_MS, 1),
+  },
+  subscriptionLimits: {
+    basic: num('SUBSCRIPTION_LIMIT_BASIC', DEFAULTS.SUBSCRIPTION_LIMITS.basic, 1),
+    pro: num('SUBSCRIPTION_LIMIT_PRO', DEFAULTS.SUBSCRIPTION_LIMITS.pro, 1),
+    premium: num('SUBSCRIPTION_LIMIT_PREMIUM', DEFAULTS.SUBSCRIPTION_LIMITS.premium, 1),
   },
   num,
 };
