@@ -173,6 +173,8 @@ async function handleMessage(msg) {
       return;
     }
 
+    await sendTelegram(chatId, '❓ Неизвестная команда. Введите /help для списка.');
+
   } catch (e) {
     console.error('handleMessage error:', e);
     await sendTelegram(chatId, '❌ Произошла ошибка. Попробуйте позже.');

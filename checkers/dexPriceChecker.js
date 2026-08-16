@@ -47,61 +47,32 @@ function formatPrice(price) {
  */
 async function fetchBatchPrices(chainId, addresses) {
   const url = `https://api.dexscreener.com/tokens/v1/${chainId}/${addresses.join(',')}`;
-  const maxRetries = 3;
-  let delay = 2000;
+  const res = await fetchWithRetry(url);
 
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000);
-      const res = await fetchWithRetry(url, { signal: controller.signal });
-      clearTimeout(timeoutId);
+  if (!res.ok) {
+    console.debug(`❌ HTTP ${res.status} для ${chainId} батча`);
+    return {};
+  }
 
-      if (res.status === 429) {
-        console.log(`⚠️ 429 Too Many Requests, попытка ${attempt + 1}/${maxRetries}, ждём ${delay / 1000}с...`);
-        await new Promise(r => setTimeout(r, delay));
-        delay *= 2;
-        continue;
-      }
+  const data = await res.json();
+  const pairs = Array.isArray(data) ? data : (data?.pairs || []);
 
-      if (!res.ok) {
-        console.log(`❌ HTTP ${res.status} для ${chainId} батча`);
-        return {};
-      }
-
-      const data = await res.json();
-      const pairs = Array.isArray(data) ? data : (data?.pairs || []);
-
-      const resultMap = {};
-      for (const pair of pairs) {
-        const addr = pair?.baseToken?.address?.toLowerCase();
-        if (!addr) continue;
-        const liquidity = parseFloat(pair?.liquidity?.usd || 0);
-        const current = resultMap[addr];
-        if (!current || liquidity >= current.liquidity) {
-          resultMap[addr] = {
-            price: parseFloat(pair.priceUsd || 0),
-            url: pair.url || '',
-            symbol: pair?.baseToken?.symbol || 'UNKNOWN',
-            liquidity,
-          };
-        }
-      }
-      return resultMap;
-    } catch (err) {
-      if (err.name === 'AbortError') {
-        console.log(`⏱️ Timeout для ${chainId} батча, попытка ${attempt + 1}`);
-      } else {
-        console.error(`❌ Ошибка пакетного запроса (${chainId}):`, err);
-      }
-      if (attempt < maxRetries - 1) {
-        await new Promise(r => setTimeout(r, delay));
-        delay *= 2;
-      }
+  const resultMap = {};
+  for (const pair of pairs) {
+    const addr = pair?.baseToken?.address?.toLowerCase();
+    if (!addr) continue;
+    const liquidity = parseFloat(pair?.liquidity?.usd || 0);
+    const current = resultMap[addr];
+    if (!current || liquidity >= current.liquidity) {
+      resultMap[addr] = {
+        price: parseFloat(pair.priceUsd || 0),
+        url: pair.url || '',
+        symbol: pair?.baseToken?.symbol || 'UNKNOWN',
+        liquidity,
+      };
     }
   }
-  console.error(`❌ Не удалось получить данные для ${chainId} после ${maxRetries} попыток, пропущено адресов: ${addresses.length}`);
-  return {};
+  return resultMap;
 }
 
 /**
@@ -154,11 +125,11 @@ async function runCycle(ctx) {
   try {
     const allAlerts = await getDexAlerts();
     if (allAlerts.length === 0) {
-      console.log('⏸️ Нет активных DEX алертов');
+      console.debug('⏸️ Нет активных DEX алертов');
       return;
     }
 
-    console.log(`🔄 DEX проверка: ${allAlerts.length} алертов`);
+    console.debug(`🔄 DEX проверка: ${allAlerts.length} алертов`);
 
     // Get blocked users
     const blockedUsersSet = await getBlockedUsers();
@@ -239,7 +210,7 @@ async function runCycle(ctx) {
       }
     }
 
-    console.log(`✅ DEX цикл завершён: ${alerts.length} уведомлений отправлено`);
+    console.debug(`✅ DEX цикл завершён: ${alerts.length} уведомлений отправлено`);
   } finally {
     ctx.isChecking = false;
   }

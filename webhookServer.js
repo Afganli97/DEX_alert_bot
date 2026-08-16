@@ -12,7 +12,7 @@ function startWebhookServer() {
   const secret = process.env.WEBHOOK_SECRET;
   if (!secret) {
     console.error('❌ WEBHOOK_SECRET is not set in .env. Webhook server will not start securely.');
-    return;
+    throw new Error('WEBHOOK_SECRET is required. Set it in .env before starting the bot.');
   }
 
   app.post(path, async (req, res) => {
@@ -36,12 +36,18 @@ function startWebhookServer() {
     res.sendStatus(200);
   });
 
-  app.listen(port, () => {
+  const server = app.listen(port, () => {
     if (!process.env.WEBHOOK_URL) {
       console.warn('⚠️ WEBHOOK_URL not set in .env – bot will not receive Telegram updates');
     }
     console.log(`✅ Webhook server listening on ${port}${path}`);
   });
+
+  process.on('SIGTERM', async () => {
+    server.close(() => process.exit(0));
+  });
+
+  return server;
 }
 
 module.exports = { startWebhookServer };

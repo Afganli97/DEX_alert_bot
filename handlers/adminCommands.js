@@ -47,8 +47,13 @@ async function handleAdminCommand(chatId, text, sendTelegram, isAdmin) {
     }
     case 'block_user': {
       const targetId = parts[2];
-      if (!targetId) {
+      if (!targetId || !/^\d+$/.test(targetId)) {
         await sendTelegram(chatId, 'Usage: /admin block_user <chatId>');
+        return true;
+      }
+      const user = await usersCollection.findOne({ _id: targetId });
+      if (!user) {
+        await sendTelegram(chatId, `❌ Пользователь ${targetId} не найден.`);
         return true;
       }
       await usersCollection.updateOne({ _id: targetId }, { $set: { status: 'blocked' } });
@@ -57,8 +62,13 @@ async function handleAdminCommand(chatId, text, sendTelegram, isAdmin) {
     }
     case 'unblock_user': {
       const targetId = parts[2];
-      if (!targetId) {
+      if (!targetId || !/^\d+$/.test(targetId)) {
         await sendTelegram(chatId, 'Usage: /admin unblock_user <chatId>');
+        return true;
+      }
+      const user = await usersCollection.findOne({ _id: targetId });
+      if (!user) {
+        await sendTelegram(chatId, `❌ Пользователь ${targetId} не найден.`);
         return true;
       }
       await usersCollection.updateOne({ _id: targetId }, { $set: { status: 'active' } });

@@ -43,7 +43,8 @@ async function handleStartHelp(chatId, sendTelegram, isAdmin, session) {
     '/privacy — показать политику конфиденциальности\n' +
     '/help — эта справка\n\n' +
     '👋 Добро пожаловать! Используйте /add для добавления первого токена.';
-  await sendTelegram(chatId, helpText);
+  const sent = await sendTelegram(chatId, helpText);
+  if (!sent) console.warn('Failed to send help to', chatId);
 }
 
 /**

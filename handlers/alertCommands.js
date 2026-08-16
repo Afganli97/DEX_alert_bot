@@ -3,6 +3,7 @@
 // ==============================
 
 const { ObjectId } = require('mongodb');
+const bs58 = require('bs58').default;
 
 let alertsCollection = null;
 let usersCollection = null;
@@ -37,11 +38,18 @@ async function getUserAlerts(ownerId) {
  * @param {number} changePercent - Change threshold percent
  */
 // Basic address validation (EVM or Solana format)
-// Note: Solana validation is regex-based only; for production use consider @solana/web3.js
+// Solana addresses are validated via base58 decoding to ensure exactly 32 bytes
 function isValidTokenAddress(address) {
   const isEvm = /^0x[0-9a-fA-F]{40}$/.test(address);
-  const isSolana = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address);
-  return isEvm || isSolana;
+  if (isEvm) return true;
+
+  // Solana: decode from base58 and verify exactly 32 bytes
+  try {
+    const decoded = bs58.decode(address);
+    return decoded.length === 32;
+  } catch {
+    return false;
+  }
 }
 
 async function addAlert(ownerId, chain, address, name, changePercent = 10) {
