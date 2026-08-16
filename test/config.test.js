@@ -30,3 +30,36 @@ describe('config.num()', () => {
     expect(num('TEST_VAR', 10, 0)).toBe(10);
   });
 });
+
+describe('config.subscriptionLimits', () => {
+  test('has default subscription limits', () => {
+    const config = require('../config');
+    expect(config.subscriptionLimits.basic).toBe(5);
+    expect(config.subscriptionLimits.pro).toBe(15);
+    expect(config.subscriptionLimits.premium).toBe(50);
+  });
+
+  test('allows overriding subscription limits via env', () => {
+    process.env.SUBSCRIPTION_LIMIT_BASIC = '10';
+    process.env.SUBSCRIPTION_LIMIT_PRO = '30';
+    process.env.SUBSCRIPTION_LIMIT_PREMIUM = '100';
+
+    jest.resetModules();
+    const updatedConfig = require('../config');
+
+    expect(updatedConfig.subscriptionLimits.basic).toBe(10);
+    expect(updatedConfig.subscriptionLimits.pro).toBe(30);
+    expect(updatedConfig.subscriptionLimits.premium).toBe(100);
+  });
+
+  test('falls back to defaults for invalid env values', () => {
+    process.env.SUBSCRIPTION_LIMIT_BASIC = 'invalid';
+    process.env.SUBSCRIPTION_LIMIT_PRO = '-5';
+
+    jest.resetModules();
+    const updatedConfig = require('../config');
+
+    expect(updatedConfig.subscriptionLimits.basic).toBe(5);
+    expect(updatedConfig.subscriptionLimits.pro).toBe(15);
+  });
+});
