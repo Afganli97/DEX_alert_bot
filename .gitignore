@@ -8,3 +8,4 @@ AUDIT.md
 COVERAGE.md
 EXECUTION_LOG.md
 node_modules/
+coverage/
