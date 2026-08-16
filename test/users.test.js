@@ -2,7 +2,7 @@
 // Tests for lib/users.js
 // ==============================
 
-const { ensureUser, isAdmin, markUserBlocked, getUser, initUsers, getUsersCollection } = require('../lib/users');
+const { ensureUser, isAdmin, markUserBlocked, getUser, initUsers, getUsersCollection, getSubscriptionLimit } = require('../lib/users');
 
 describe('users.js', () => {
   let mockCollection;
@@ -32,7 +32,7 @@ describe('users.js', () => {
           username: 'testuser',
           createdAt: expect.any(Date),
           status: 'active',
-          maxTokens: 20,
+          subscription: 'basic',
           lastActivityAt: expect.any(Date),
         },
       });
@@ -40,7 +40,7 @@ describe('users.js', () => {
       const result = await ensureUser('123', 'testuser');
       expect(result._id).toBe('123');
       expect(result.status).toBe('active');
-      expect(result.maxTokens).toBe(20);
+      expect(result.subscription).toBe('basic');
     });
 
     test('throws on invalid chatId', async () => {
@@ -105,7 +105,7 @@ describe('users.js', () => {
 
   describe('getUser', () => {
     test('returns user document', async () => {
-      const mockUser = { _id: '123', username: 'test', status: 'active' };
+      const mockUser = { _id: '123', username: 'test', status: 'active', subscription: 'basic' };
       mockCollection.findOne.mockResolvedValueOnce(mockUser);
 
       const result = await getUser('123');
@@ -124,6 +124,26 @@ describe('users.js', () => {
       const newCollection = { test: true };
       initUsers(newCollection);
       expect(getUsersCollection()).toBe(newCollection);
+    });
+  });
+
+  describe('getSubscriptionLimit', () => {
+    test('returns correct limit for basic', () => {
+      expect(getSubscriptionLimit('basic')).toBe(5);
+    });
+
+    test('returns correct limit for pro', () => {
+      expect(getSubscriptionLimit('pro')).toBe(15);
+    });
+
+    test('returns correct limit for premium', () => {
+      expect(getSubscriptionLimit('premium')).toBe(50);
+    });
+
+    test('returns basic limit for invalid subscription', () => {
+      expect(getSubscriptionLimit('invalid')).toBe(5);
+      expect(getSubscriptionLimit('')).toBe(5);
+      expect(getSubscriptionLimit(null)).toBe(5);
     });
   });
 });
