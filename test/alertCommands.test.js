@@ -97,6 +97,16 @@ describe('alertCommands.js', () => {
       await expect(addAlert('123', 'ethereum', '0x1234567890123456789012345678901234567890', 'Test', 10))
         .rejects.toThrow('TOKEN_LIMIT_REACHED:5');
     });
+
+    test('preserves Solana address case (base58 is case-sensitive)', async () => {
+      const solanaAddress = 'So11111111111111111111111111111111111111112';
+      await addAlert('123', 'solana', solanaAddress, 'WSOL', 10);
+      expect(mockAlertsCollection.insertOne).toHaveBeenCalledWith(expect.objectContaining({
+        ownerId: '123',
+        source: 'dex',
+        target: { chain: 'solana', address: solanaAddress }, // original case preserved
+      }));
+    });
   });
 
   describe('removeAlert', () => {
