@@ -89,4 +89,30 @@ describe('TelegramQueue', () => {
     const resolved = await result;
     expect(resolved).toBe(false);
   });
+
+  test('retries on 429 and resolves true after retry', async () => {
+    const queue = new TelegramQueue(mockUsersCollection);
+    
+    // First call returns 429 with retry_after: 1
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({ 
+        ok: false, 
+        error_code: 429, 
+        parameters: { retry_after: 1 } 
+      }),
+    });
+    // Second call (retry) succeeds
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ ok: true }),
+    });
+
+    const result = queue.push('123', 'Test 429 retry');
+    // Wait for retry (1 second + processing time)
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    const resolved = await result;
+    expect(resolved).toBe(true);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
 });
