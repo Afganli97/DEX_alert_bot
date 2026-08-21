@@ -45,6 +45,13 @@ function startSessionCleanup() {
         sessions.delete(chatId);
       }
     }
+    // Clean rate-limit timestamps older than 1 minute
+    const rateLimitCutoff = Date.now() - 60 * 1000;
+    for (const [chatId, arr] of commandTimestamps) {
+      const filtered = arr.filter(t => t >= rateLimitCutoff);
+      if (filtered.length === 0) commandTimestamps.delete(chatId);
+      else commandTimestamps.set(chatId, filtered);
+    }
   }, 5 * 60 * 1000);
 }
 
@@ -52,6 +59,19 @@ function stopSessionCleanup() {
   if (sessionCleanupInterval) {
     clearInterval(sessionCleanupInterval);
     sessionCleanupInterval = null;
+  }
+}
+
+/**
+ * Clean up rate-limit timestamps older than 1 minute.
+ * Exported for testing.
+ */
+function cleanupRateLimitTimestamps() {
+  const rateLimitCutoff = Date.now() - 60 * 1000;
+  for (const [chatId, arr] of commandTimestamps) {
+    const filtered = arr.filter(t => t >= rateLimitCutoff);
+    if (filtered.length === 0) commandTimestamps.delete(chatId);
+    else commandTimestamps.set(chatId, filtered);
   }
 }
 
@@ -346,6 +366,15 @@ async function handleAddAddress(chatId, address, sendTelegram, fetchTokenInfo, e
   session.pendingData = { addAddress: trimmedAddress };
   session.state = 'awaiting_add_confirm';
 
+  // Validate address format before making HTTP request
+  const { isValidTokenAddress } = require('../handlers/alertCommands');
+  if (!isValidTokenAddress(trimmedAddress)) {
+    sendTelegram(chatId, '❌ Неверный формат адреса. EVM: 0x... (40 hex), Solana: base58.');
+    session.state = null;
+    session.pendingData = {};
+    return;
+  }
+
   // Fetch token info
   const tokenInfo = await fetchTokenInfo(trimmedAddress);
   if (!tokenInfo) {
@@ -442,6 +471,7 @@ module.exports = {
   isRateLimited,
   startSessionCleanup,
   stopSessionCleanup,
+  cleanupRateLimitTimestamps,
   // Broadcast
   handleBroadcastStart,
   handleBroadcastMessage,

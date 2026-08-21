@@ -3,6 +3,7 @@
 // ==============================
 
 const { getSubscriptionLimit } = require('../lib/users');
+const { invalidateBlockedUsersCache } = require('../checkers/dexPriceChecker');
 
 let alertsCollection = null;
 let usersCollection = null;
@@ -59,6 +60,7 @@ async function handleAdminCommand(chatId, text, sendTelegram, isAdmin) {
         return true;
       }
       await usersCollection.updateOne({ _id: targetId }, { $set: { status: 'blocked' } });
+      invalidateBlockedUsersCache();
       await sendTelegram(chatId, `✅ Пользователь ${targetId} заблокирован.`);
       return true;
     }
@@ -74,6 +76,7 @@ async function handleAdminCommand(chatId, text, sendTelegram, isAdmin) {
         return true;
       }
       await usersCollection.updateOne({ _id: targetId }, { $set: { status: 'active' } });
+      invalidateBlockedUsersCache();
       await sendTelegram(chatId, `✅ Пользователь ${targetId} разблокирован.`);
       return true;
     }

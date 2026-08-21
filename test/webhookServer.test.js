@@ -19,4 +19,9 @@ describe('webhookServer.js', () => {
     const { startWebhookServer } = require('../webhookServer');
     expect(() => startWebhookServer()).toThrow('WEBHOOK_SECRET is required');
   });
+
+  test('closeWebhookServer resolves immediately when server not started', async () => {
+    const { closeWebhookServer } = require('../webhookServer');
+    await expect(closeWebhookServer()).resolves.toBeUndefined();
+  });
 });

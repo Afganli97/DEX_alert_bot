@@ -34,6 +34,7 @@ A multi-user Telegram bot that monitors token prices via DexScreener API.
 - `/admin unblock_user <chatId>` - Unblock a user
 - `/admin reset_all_anchors` - Reset all baseline prices
 - `/admin view_user <chatId>` - View user information
+- `/admin set_subscription <chatId> <basic|pro|premium>` - Change a user's subscription level
 
 ## Installation
 

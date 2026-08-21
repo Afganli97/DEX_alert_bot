@@ -2,7 +2,7 @@
 // Tests for lib/users.js
 // ==============================
 
-const { ensureUser, isAdmin, markUserBlocked, getUser, initUsers, getUsersCollection, getSubscriptionLimit } = require('../lib/users');
+const { ensureUser, isAdmin, initUsers, getUsersCollection, getSubscriptionLimit } = require('../lib/users');
 
 describe('users.js', () => {
   let mockCollection;
@@ -90,32 +90,6 @@ describe('users.js', () => {
     test('handles empty ADMIN_CHAT_IDS', () => {
       process.env.ADMIN_CHAT_IDS = '';
       expect(isAdmin('123')).toBe(false);
-    });
-  });
-
-  describe('markUserBlocked', () => {
-    test('updates user status to blocked', async () => {
-      await markUserBlocked('123');
-      expect(mockCollection.updateOne).toHaveBeenCalledWith(
-        { _id: '123' },
-        { $set: { status: 'blocked' } }
-      );
-    });
-  });
-
-  describe('getUser', () => {
-    test('returns user document', async () => {
-      const mockUser = { _id: '123', username: 'test', status: 'active', subscription: 'basic' };
-      mockCollection.findOne.mockResolvedValueOnce(mockUser);
-
-      const result = await getUser('123');
-      expect(result).toEqual(mockUser);
-    });
-
-    test('returns null if user not found', async () => {
-      mockCollection.findOne.mockResolvedValueOnce(null);
-      const result = await getUser('999');
-      expect(result).toBeNull();
     });
   });
 

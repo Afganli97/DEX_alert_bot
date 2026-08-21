@@ -102,6 +102,14 @@ async function getBlockedUsers() {
 }
 
 /**
+ * Invalidate the blocked users cache so next call to getBlockedUsers() fetches fresh data.
+ * Call this after blocking/unblocking a user.
+ */
+function invalidateBlockedUsersCache() {
+  blockedUsersCache = { set: new Set(), updatedAt: 0 };
+}
+
+/**
  * Update alert's baseline price
  * @param {ObjectId} alertId - Alert document ID
  * @param {number} price - New baseline price
@@ -151,8 +159,10 @@ async function runCycle(ctx) {
     // Fetch prices for all chains
     const priceCache = new Map(); // "chain:address" -> {price, symbol, url}
     for (const [chain, addrSet] of uniqueByChain) {
+      if (ctx.shuttingDown) break;
       const addresses = [...addrSet];
       for (let i = 0; i < addresses.length; i += config.dexPrice.batchSize) {
+        if (ctx.shuttingDown) break;
         const batch = addresses.slice(i, i + config.dexPrice.batchSize);
         const data = await fetchBatchPrices(chain, batch);
         for (const [addr, info] of Object.entries(data)) {
@@ -167,6 +177,7 @@ async function runCycle(ctx) {
     // Evaluate conditions and prepare alerts
     const alerts = []; // {chatId, text, alertId, newBaseline}
     for (const alert of allAlerts) {
+      if (ctx.shuttingDown) break;
       if (blockedUsersSet.has(alert.ownerId)) {
         continue;
       }
@@ -177,6 +188,7 @@ async function runCycle(ctx) {
 
       // First run: no baseline yet — set it, no alert
       if (result.needsBaseline) {
+        if (ctx.shuttingDown) break;
         await updateAlertBaseline(alert._id, result.newBaseline);
         continue;
       }
@@ -203,9 +215,11 @@ async function runCycle(ctx) {
 
     // Send notifications
     for (const alert of alerts) {
+      if (ctx.shuttingDown) break;
       await sendTelegram(alert.chatId, alert.text);
       // Update baseline after sending alert
       if (alert.newBaseline) {
+        if (ctx.shuttingDown) break;
         await updateAlertBaseline(alert.alertId, alert.newBaseline);
       }
     }
@@ -222,6 +236,7 @@ module.exports = {
   fetchBatchPrices,
   getDexAlerts,
   getBlockedUsers,
+  invalidateBlockedUsersCache,
   updateAlertBaseline,
   formatPrice,
   type: 'dex_price', // Для scheduler

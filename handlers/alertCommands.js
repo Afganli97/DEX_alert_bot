@@ -88,7 +88,7 @@ async function addAlert(ownerId, chain, address, name, changePercent = 10) {
     source: 'dex',
     target: {
       chain: chain.toLowerCase(),
-      address: address.toLowerCase(),
+      address: address, // preserve original case for Solana (base58 is case-sensitive)
     },
     condition: {
       kind: 'percent_change',

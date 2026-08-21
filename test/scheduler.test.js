@@ -74,4 +74,21 @@ describe('scheduler.js', () => {
     
     expect(consoleErrorSpy).toHaveBeenCalledWith('dex_price checker error:', expect.any(Error));
   });
+
+  test('startScheduler stops scheduling when shuttingDown becomes true', async () => {
+    const { startScheduler } = require('../scheduler');
+    startScheduler(mockCtx);
+    
+    // First call should have happened
+    expect(mockRunCycle).toHaveBeenCalledTimes(1);
+    
+    // Set shuttingDown to true
+    mockCtx.shuttingDown = true;
+    
+    // Wait for the next tick (the setTimeout callback)
+    await new Promise(resolve => setImmediate(resolve));
+    
+    // runCycle should not be called again
+    expect(mockRunCycle).toHaveBeenCalledTimes(1);
+  });
 });

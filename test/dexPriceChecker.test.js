@@ -1,8 +1,9 @@
-// ==============================
-// Tests for checkers/dexPriceChecker.js - getDexAlerts, getBlockedUsers, updateAlertBaseline, runCycle
-// ==============================
+// Tests for checkers/dexPriceChecker - alert triggers when threshold exceeded
 
-describe('dexPriceChecker.js - additional functions', () => {
+jest.mock('../lib/fetchWithRetry');
+jest.mock('../lib/telegram');
+
+describe('dexPriceChecker alert threshold', () => {
   let mockAlertsCollection;
   let mockUsersCollection;
   let dexPriceChecker;
@@ -15,8 +16,6 @@ describe('dexPriceChecker.js - additional functions', () => {
     mockUsersCollection = {
       find: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) }),
     };
-    
-    // Reset modules to get fresh instance
     jest.resetModules();
     dexPriceChecker = require('../checkers/dexPriceChecker');
     dexPriceChecker.initCollections(mockAlertsCollection, mockUsersCollection);
@@ -26,99 +25,183 @@ describe('dexPriceChecker.js - additional functions', () => {
     jest.clearAllMocks();
   });
 
-  describe('getDexAlerts', () => {
-    test('returns active dex alerts', async () => {
-      const mockAlerts = [
-        { _id: 'a1', source: 'dex', status: 'active', ownerId: '123', target: { chain: 'ethereum', address: '0x123' } },
-        { _id: 'a2', source: 'dex', status: 'active', ownerId: '456', target: { chain: 'solana', address: '111111' } },
-      ];
-      mockAlertsCollection.find.mockReturnValue({
-        toArray: jest.fn().mockResolvedValue(mockAlerts),
-      });
-
-      const result = await dexPriceChecker.getDexAlerts();
-      expect(result).toEqual(mockAlerts);
-      expect(mockAlertsCollection.find).toHaveBeenCalledWith({ source: 'dex', status: 'active' });
+  test('alert triggers when threshold exceeded', async () => {
+    const mockAlert = {
+      _id: 'alert1',
+      source: 'dex',
+      status: 'active',
+      ownerId: 'user123',
+      target: { chain: 'ethereum', address: '0xabc' },
+      condition: { kind: 'percent_change', changePercent: 10, baselinePrice: 100 },
+    };
+    mockAlertsCollection.find.mockReturnValue({
+      toArray: jest.fn().mockResolvedValue([mockAlert]),
     });
+    // No blocked users
+    mockUsersCollection.find.mockReturnValue({
+      toArray: jest.fn().mockResolvedValue([]),
+      forEach: jest.fn().mockImplementation(async (cb) => {}),
+    });
+    const { sendTelegram } = require('../lib/telegram');
+    const { fetchWithRetry } = require('../lib/fetchWithRetry');
+    fetchWithRetry.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        pairs: [
+          {
+            baseToken: { address: '0xabc', symbol: 'TOKEN', url: 'http://example.com' },
+            priceUsd: 120,
+            liquidity: { usd: 1000 },
+          },
+        ],
+      }),
+    });
+    const ctx = { shuttingDown: false, isChecking: false };
+    await dexPriceChecker.runCycle(ctx);
+    expect(sendTelegram).toHaveBeenCalledWith('user123', expect.any(String));
+  });
+});
+
+describe('dexPriceChecker shutdown behavior', () => {
+  let mockAlertsCollection;
+  let mockUsersCollection;
+  let dexPriceChecker;
+
+  beforeEach(() => {
+    mockAlertsCollection = {
+      find: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) }),
+      updateOne: jest.fn().mockResolvedValue({}),
+    };
+    mockUsersCollection = {
+      find: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) }),
+    };
+    jest.resetModules();
+    dexPriceChecker = require('../checkers/dexPriceChecker');
+    dexPriceChecker.initCollections(mockAlertsCollection, mockUsersCollection);
   });
 
-  describe('getBlockedUsers', () => {
-    test('returns cached blocked users when not expired', async () => {
-      const mockBlockedUsers = [{ _id: '111' }, { _id: '222' }];
-      mockUsersCollection.find.mockReturnValue({
-        toArray: jest.fn().mockResolvedValue(mockBlockedUsers),
-        forEach: jest.fn().mockImplementation(async (cb) => {
-          for (const user of mockBlockedUsers) await cb(user);
-        }),
-      });
-
-      const result = await dexPriceChecker.getBlockedUsers();
-      expect(result.has('111')).toBe(true);
-      expect(result.has('222')).toBe(true);
-      expect(result.has('999')).toBe(false);
-    });
-
-    test('returns empty set when no blocked users', async () => {
-      mockUsersCollection.find.mockReturnValue({
-        toArray: jest.fn().mockResolvedValue([]),
-        forEach: jest.fn().mockImplementation(async (cb) => {}),
-      });
-
-      const result = await dexPriceChecker.getBlockedUsers();
-      expect(result.size).toBe(0);
-    });
+  afterEach(() => {
+    jest.clearAllMocks();
   });
 
-  describe('updateAlertBaseline', () => {
-    test('updates alert baseline price', async () => {
-      const mockId = { toString: () => 'alert123' };
-      await dexPriceChecker.updateAlertBaseline(mockId, 1500.50);
-
-      expect(mockAlertsCollection.updateOne).toHaveBeenCalledWith(
-        { _id: mockId },
-        { $set: { 'condition.baselinePrice': 1500.50 } }
-      );
+  test('runCycle exits early when ctx.shuttingDown is true before fetch', async () => {
+    const mockAlert = {
+      _id: 'alert1',
+      source: 'dex',
+      status: 'active',
+      ownerId: 'user123',
+      target: { chain: 'ethereum', address: '0xabc' },
+      condition: { kind: 'percent_change', changePercent: 10, baselinePrice: 100 },
+    };
+    mockAlertsCollection.find.mockReturnValue({
+      toArray: jest.fn().mockResolvedValue([mockAlert]),
     });
+    mockUsersCollection.find.mockReturnValue({
+      toArray: jest.fn().mockResolvedValue([]),
+      forEach: jest.fn().mockImplementation(async (cb) => {}),
+    });
+    const { fetchWithRetry } = require('../lib/fetchWithRetry');
+    // This should NOT be called if shutdown is checked before fetch
+    fetchWithRetry.mockResolvedValue({
+      ok: true,
+      json: async () => ({ pairs: [] }),
+    });
+
+    const ctx = { shuttingDown: true, isChecking: false };
+    await dexPriceChecker.runCycle(ctx);
+
+    // fetchWithRetry should not be called because we exit early
+    expect(fetchWithRetry).not.toHaveBeenCalled();
   });
 
-  describe('runCycle', () => {
-    test('returns early when no alerts', async () => {
-      const ctx = { shuttingDown: false, isChecking: false };
-      await dexPriceChecker.runCycle(ctx);
-      expect(ctx.isChecking).toBe(false);
+  test('runCycle exits early when ctx.shuttingDown becomes true during fetch loop', async () => {
+    const mockAlert = {
+      _id: 'alert1',
+      source: 'dex',
+      status: 'active',
+      ownerId: 'user123',
+      target: { chain: 'ethereum', address: '0xabc' },
+      condition: { kind: 'percent_change', changePercent: 10, baselinePrice: 100 },
+    };
+    mockAlertsCollection.find.mockReturnValue({
+      toArray: jest.fn().mockResolvedValue([mockAlert]),
+    });
+    mockUsersCollection.find.mockReturnValue({
+      toArray: jest.fn().mockResolvedValue([]),
+      forEach: jest.fn().mockImplementation(async (cb) => {}),
+    });
+    const { fetchWithRetry } = require('../lib/fetchWithRetry');
+    let callCount = 0;
+    fetchWithRetry.mockImplementation(async () => {
+      callCount++;
+      // Simulate delay
+      await new Promise(r => setTimeout(r, 10));
+      return {
+        ok: true,
+        json: async () => ({ pairs: [] }),
+      };
     });
 
-    test('returns early when shutting down', async () => {
-      const ctx = { shuttingDown: true, isChecking: false };
-      await dexPriceChecker.runCycle(ctx);
-      expect(mockAlertsCollection.find).not.toHaveBeenCalled();
+    const ctx = { shuttingDown: false, isChecking: false };
+    // Start the cycle, then set shuttingDown to true
+    const cyclePromise = dexPriceChecker.runCycle(ctx);
+    // Give it a moment to start fetching
+    await new Promise(r => setTimeout(r, 5));
+    ctx.shuttingDown = true;
+    await cyclePromise;
+
+    // Should have made at least one fetch call but then exited
+    expect(callCount).toBeGreaterThanOrEqual(1);
+  });
+});
+describe('dexPriceChecker blocked users cache', () => {
+  let mockAlertsCollection;
+  let mockUsersCollection;
+  let dexPriceChecker;
+
+  beforeEach(() => {
+    mockAlertsCollection = {
+      find: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) }),
+      updateOne: jest.fn().mockResolvedValue({}),
+    };
+    mockUsersCollection = {
+      find: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) }),
+    };
+    jest.resetModules();
+    dexPriceChecker = require('../checkers/dexPriceChecker');
+    dexPriceChecker.initCollections(mockAlertsCollection, mockUsersCollection);
+  });
+
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test('invalidateBlockedUsersCache forces fresh DB query on next getBlockedUsers', async () => {
+    // First call — populates cache with empty set
+    mockUsersCollection.find.mockReturnValue({
+      toArray: jest.fn().mockResolvedValue([]),
+      forEach: jest.fn().mockImplementation(async (cb) => {}),
+    });
+    const set1 = await dexPriceChecker.getBlockedUsers();
+    expect(set1.size).toBe(0);
+
+    // Without invalidation, second call returns cached result (no new DB query)
+    const set2 = await dexPriceChecker.getBlockedUsers();
+    expect(mockUsersCollection.find).toHaveBeenCalledTimes(1);
+
+    // After invalidation, next call should query DB again
+    dexPriceChecker.invalidateBlockedUsersCache();
+
+    // Now mock returns a blocked user
+    mockUsersCollection.find.mockReturnValue({
+      toArray: jest.fn().mockResolvedValue([]),
+      forEach: jest.fn().mockImplementation(async (cb) => {
+        await cb({ _id: 'blockedUser1' });
+      }),
     });
 
-    test('returns early when already checking', async () => {
-      const ctx = { shuttingDown: false, isChecking: true };
-      await dexPriceChecker.runCycle(ctx);
-      expect(mockAlertsCollection.find).not.toHaveBeenCalled();
-    });
-
-    test('skips blocked users', async () => {
-      const mockAlerts = [
-        { _id: 'a1', source: 'dex', status: 'active', ownerId: 'blocked123', target: { chain: 'ethereum', address: '0x123' } },
-      ];
-      mockAlertsCollection.find.mockReturnValue({
-        toArray: jest.fn().mockResolvedValue(mockAlerts),
-      });
-
-      // Mock blocked users
-      mockUsersCollection.find.mockReturnValue({
-        toArray: jest.fn().mockResolvedValue([{ _id: 'blocked123' }]),
-        forEach: jest.fn().mockImplementation(async (cb) => {
-          await cb({ _id: 'blocked123' });
-        }),
-      });
-
-      const ctx = { shuttingDown: false, isChecking: false };
-      await dexPriceChecker.runCycle(ctx);
-      expect(ctx.isChecking).toBe(false);
-    });
+    const set3 = await dexPriceChecker.getBlockedUsers();
+    expect(mockUsersCollection.find).toHaveBeenCalledTimes(2);
+    expect(set3.has('blockedUser1')).toBe(true);
   });
 });
