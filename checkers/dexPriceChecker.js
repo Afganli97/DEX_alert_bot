@@ -102,6 +102,14 @@ async function getBlockedUsers() {
 }
 
 /**
+ * Invalidate the blocked users cache so next call to getBlockedUsers() fetches fresh data.
+ * Call this after blocking/unblocking a user.
+ */
+function invalidateBlockedUsersCache() {
+  blockedUsersCache = { set: new Set(), updatedAt: 0 };
+}
+
+/**
  * Update alert's baseline price
  * @param {ObjectId} alertId - Alert document ID
  * @param {number} price - New baseline price
@@ -228,6 +236,7 @@ module.exports = {
   fetchBatchPrices,
   getDexAlerts,
   getBlockedUsers,
+  invalidateBlockedUsersCache,
   updateAlertBaseline,
   formatPrice,
   type: 'dex_price', // Для scheduler

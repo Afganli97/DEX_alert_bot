@@ -154,3 +154,54 @@ describe('dexPriceChecker shutdown behavior', () => {
     expect(callCount).toBeGreaterThanOrEqual(1);
   });
 });
+describe('dexPriceChecker blocked users cache', () => {
+  let mockAlertsCollection;
+  let mockUsersCollection;
+  let dexPriceChecker;
+
+  beforeEach(() => {
+    mockAlertsCollection = {
+      find: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) }),
+      updateOne: jest.fn().mockResolvedValue({}),
+    };
+    mockUsersCollection = {
+      find: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) }),
+    };
+    jest.resetModules();
+    dexPriceChecker = require('../checkers/dexPriceChecker');
+    dexPriceChecker.initCollections(mockAlertsCollection, mockUsersCollection);
+  });
+
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test('invalidateBlockedUsersCache forces fresh DB query on next getBlockedUsers', async () => {
+    // First call — populates cache with empty set
+    mockUsersCollection.find.mockReturnValue({
+      toArray: jest.fn().mockResolvedValue([]),
+      forEach: jest.fn().mockImplementation(async (cb) => {}),
+    });
+    const set1 = await dexPriceChecker.getBlockedUsers();
+    expect(set1.size).toBe(0);
+
+    // Without invalidation, second call returns cached result (no new DB query)
+    const set2 = await dexPriceChecker.getBlockedUsers();
+    expect(mockUsersCollection.find).toHaveBeenCalledTimes(1);
+
+    // After invalidation, next call should query DB again
+    dexPriceChecker.invalidateBlockedUsersCache();
+
+    // Now mock returns a blocked user
+    mockUsersCollection.find.mockReturnValue({
+      toArray: jest.fn().mockResolvedValue([]),
+      forEach: jest.fn().mockImplementation(async (cb) => {
+        await cb({ _id: 'blockedUser1' });
+      }),
+    });
+
+    const set3 = await dexPriceChecker.getBlockedUsers();
+    expect(mockUsersCollection.find).toHaveBeenCalledTimes(2);
+    expect(set3.has('blockedUser1')).toBe(true);
+  });
+});

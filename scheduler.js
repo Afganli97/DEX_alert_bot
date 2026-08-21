@@ -21,14 +21,13 @@ const checkers = [
 function startScheduler(ctx) {
   for (const checker of checkers) {
     const loop = async () => {
-      if (!ctx.shuttingDown) {
-        try {
-          await checker.module.runCycle(ctx);
-        } catch (e) {
-          console.error(`${checker.type} checker error:`, e);
-        }
+      if (ctx.shuttingDown) return;
+      try {
+        await checker.module.runCycle(ctx);
+      } catch (e) {
+        console.error(`${checker.type} checker error:`, e);
       }
-      setTimeout(loop, checker.intervalMs);
+      if (!ctx.shuttingDown) setTimeout(loop, checker.intervalMs);
     };
 
     // Start immediately, then repeat

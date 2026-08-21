@@ -3,9 +3,9 @@
 // ==============================
 require('dotenv').config();
 const { connectToMongo, closeMongo } = require('./lib/db');
-const { initUsers, ensureUser, isAdmin, markUserBlocked } = require('./lib/users');
+const { initUsers, ensureUser, isAdmin } = require('./lib/users');
 const { startScheduler } = require('./scheduler');
-const { startWebhookServer } = require('./webhookServer');
+const { startWebhookServer, closeWebhookServer } = require('./webhookServer');
 const { startSessionCleanup, stopSessionCleanup } = require('./handlers/sessionCommands');
 
 let db;
@@ -72,6 +72,7 @@ async function shutdown() {
     await new Promise(r => setTimeout(r, 500));
   }
 
+  await closeWebhookServer();
   await closeMongo();
   stopSessionCleanup();
   console.log('✅ Остановка завершена');
