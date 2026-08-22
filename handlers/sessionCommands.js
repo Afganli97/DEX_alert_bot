@@ -472,6 +472,7 @@ module.exports = {
   startSessionCleanup,
   stopSessionCleanup,
   cleanupRateLimitTimestamps,
+  commandTimestamps,
   // Broadcast
   handleBroadcastStart,
   handleBroadcastMessage,
