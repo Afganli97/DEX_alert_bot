@@ -39,3 +39,43 @@ describe('escapeHtml', () => {
     expect(escapeHtml(undefined)).toBe('undefined');
   });
 });
+
+describe('setUsersCollection and sendTelegram', () => {
+  let mockUsersCollection;
+
+  beforeEach(() => {
+    mockUsersCollection = {
+      updateOne: jest.fn().mockResolvedValue({}),
+    };
+    // Stub global fetch so TelegramQueue.sendTelegramTo does not hit the network
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ ok: true }),
+    });
+  });
+
+  afterEach(() => {
+    jest.clearAllMocks();
+    jest.resetModules();
+    delete global.fetch;
+  });
+
+  test('sendTelegram throws when queue not initialized', async () => {
+    jest.resetModules();
+    const { sendTelegram } = require('../lib/telegram');
+    await expect(sendTelegram('123', 'test')).rejects.toThrow(
+      'TelegramQueue not initialized. Call setUsersCollection first.'
+    );
+  });
+
+  test('setUsersCollection initializes the queue so sendTelegram can send', async () => {
+    jest.resetModules();
+    const { setUsersCollection, sendTelegram } = require('../lib/telegram');
+    setUsersCollection(mockUsersCollection);
+    // After init, sendTelegram should not throw the "not initialized" error
+    // and should delegate to TelegramQueue.push via fetch
+    const result = await sendTelegram('123', 'Hello');
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(result).toBe(true);
+  });
+});
