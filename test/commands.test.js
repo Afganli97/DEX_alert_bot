@@ -197,6 +197,8 @@ describe('commands.js state routing', () => {
     sessionCommands.getSession.mockReturnValue(session);
     
     // Override alertCommands and tokenCommands mocks
+    const alertCommands = require('../handlers/alertCommands');
+    const tokenCommands = require('../handlers/tokenCommands');
     alertCommands.getUserAlerts.mockResolvedValue([]);
     alertCommands.addAlert.mockResolvedValue();
     tokenCommands.fetchTokenInfo.mockResolvedValue({ name: 'ETH', chain: 'ethereum', address: '0xabc' });
@@ -210,7 +212,7 @@ describe('commands.js state routing', () => {
     session.state = 'awaiting_broadcast_message';
     const msg = { chat: { id: '123' }, from: { id: '123' }, text: 'Hello broadcast' };
     await handleMessage(msg);
-    expect(sessionCommands.handleBroadcastMessage).toHaveBeenCalledWith('123', 'Hello broadcast', expect.any(Function), expect.any(String), session);
+    expect(sessionCommands.handleBroadcastMessage).toHaveBeenCalledWith('123', 'Hello broadcast', expect.any(Function), expect.any(Function), session);
   });
 
   test('remove select state routes correctly', async () => {
@@ -260,5 +262,67 @@ describe('commands.js state routing', () => {
     const msg = { chat: { id: '123' }, from: { id: '123' }, text: 'yes' };
     await handleMessage(msg);
     expect(sessionCommands.handleAddConfirm).toHaveBeenCalledWith('123', 'yes', expect.any(Function), session);
+  });
+
+  test('handles /broadcast command as admin', async () => {
+    isAdmin.mockReturnValue(true);
+    const msg = { chat: { id: '123' }, from: { username: 'admin' }, text: '/broadcast' };
+    await handleMessage(msg);
+    expect(sessionCommands.handleBroadcastStart).toHaveBeenCalledWith('123', sendTelegram, isAdmin, session);
+  });
+
+  test('handles /broadcast command when not admin', async () => {
+    isAdmin.mockReturnValue(false);
+    const msg = { chat: { id: '123' }, from: { username: 'user' }, text: '/broadcast' };
+    await handleMessage(msg);
+    expect(sendTelegram).toHaveBeenCalledWith('123', '❌ Недоступно.');
+  });
+
+  test('handles /reset_anchors command', async () => {
+    const msg = { chat: { id: '123' }, from: { username: 'test' }, text: '/reset_anchors' };
+    await handleMessage(msg);
+    expect(utilityCommands.handleResetAnchors).toHaveBeenCalledWith('123', sendTelegram, expect.any(Function));
+  });
+
+  test('handles /delete_my_data command', async () => {
+    const msg = { chat: { id: '123' }, from: { username: 'test' }, text: '/delete_my_data' };
+    await handleMessage(msg);
+    expect(utilityCommands.handleDeleteMyData).toHaveBeenCalledWith('123', sendTelegram, mockAlertsCollection, mockUsersCollection);
+  });
+
+  test('handles /stop command', async () => {
+    const msg = { chat: { id: '123' }, from: { username: 'test' }, text: '/stop' };
+    await handleMessage(msg);
+    expect(utilityCommands.handleStop).toHaveBeenCalledWith('123', sendTelegram, mockAlertsCollection, mockUsersCollection);
+  });
+
+  test('handles /privacy command', async () => {
+    const msg = { chat: { id: '123' }, from: { username: 'test' }, text: '/privacy' };
+    await handleMessage(msg);
+    expect(utilityCommands.handlePrivacy).toHaveBeenCalledWith('123', sendTelegram);
+  });
+
+  test('handles /add command', async () => {
+    const msg = { chat: { id: '123' }, from: { username: 'test' }, text: '/add' };
+    await handleMessage(msg);
+    expect(sessionCommands.handleAddStart).toHaveBeenCalledWith('123', sendTelegram, session);
+  });
+
+  test('handles /remove command', async () => {
+    const msg = { chat: { id: '123' }, from: { username: 'test' }, text: '/remove' };
+    await handleMessage(msg);
+    expect(sessionCommands.handleRemoveStart).toHaveBeenCalledWith('123', sendTelegram, expect.any(Function), expect.any(String), session);
+  });
+
+  test('handles /change command', async () => {
+    const msg = { chat: { id: '123' }, from: { username: 'test' }, text: '/change' };
+    await handleMessage(msg);
+    expect(sessionCommands.handleChangeStart).toHaveBeenCalledWith('123', sendTelegram, expect.any(Function), expect.any(String), session);
+  });
+
+  test('handles /change_all command', async () => {
+    const msg = { chat: { id: '123' }, from: { username: 'test' }, text: '/change_all' };
+    await handleMessage(msg);
+    expect(sessionCommands.handleChangeAllStart).toHaveBeenCalledWith('123', sendTelegram, session);
   });
 });
