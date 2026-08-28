@@ -35,6 +35,9 @@ jest.mock('../handlers/sessionCommands', () => ({
   stopSessionCleanup: jest.fn(),
 }));
 
+// In beforeEach we will set getSession mock to return the session object
+
+
 jest.mock('../handlers/utilityCommands', () => ({
   initCollections: jest.fn(),
   handleStartHelp: jest.fn(),
@@ -190,28 +193,13 @@ describe('commands.js state routing', () => {
     mockFetchTokenInfo = jest.fn().mockResolvedValue({ name: 'ETH', chain: 'ethereum', address: '0xabc' });
     session = { state: null, chatId: '123' };
     
-    // Override sessionCommands mocks for state handling
-    jest.mock('../handlers/sessionCommands', () => ({
-      getSession: jest.fn().mockReturnValue(session),
-      handleBroadcastMessage: jest.fn(),
-      handleRemoveSelect: jest.fn(),
-      handleRemoveConfirm: jest.fn(),
-      handleChangeSelect: jest.fn(),
-      handleChangeValue: jest.fn(),
-      handleChangeAllValue: jest.fn(),
-      handleAddAddress: jest.fn(),
-      handleAddConfirm: jest.fn(),
-    }));
+    // Override sessionCommands getSession mock for state handling
+    sessionCommands.getSession.mockReturnValue(session);
     
     // Override alertCommands and tokenCommands mocks
-    jest.mock('../handlers/alertCommands', () => ({
-      getUserAlerts: jest.fn().mockResolvedValue([]),
-      addAlert: jest.fn(),
-    }));
-    
-    jest.mock('../handlers/tokenCommands', () => ({
-      fetchTokenInfo: jest.fn().mockResolvedValue({ name: 'ETH', chain: 'ethereum', address: '0xabc' }),
-    }));
+    alertCommands.getUserAlerts.mockResolvedValue([]);
+    alertCommands.addAlert.mockResolvedValue();
+    tokenCommands.fetchTokenInfo.mockResolvedValue({ name: 'ETH', chain: 'ethereum', address: '0xabc' });
   });
 
   afterEach(() => {
