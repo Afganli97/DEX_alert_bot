@@ -115,4 +115,44 @@ describe('TelegramQueue', () => {
     expect(resolved).toBe(true);
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
+
+  test('retries on 429 and resolves the re-queued promise after retry', async () => {
+    const queue = new TelegramQueue(mockUsersCollection);
+    
+    // First call returns 429 with retry_after: 2
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({ 
+        ok: false, 
+        error_code: 429, 
+        parameters: { retry_after: 2 } 
+      }),
+    });
+    // Second call (retry) succeeds
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ ok: true }),
+    });
+
+    const result = queue.push('123', 'Test 429 retry 2');
+    // Wait for retry (2 seconds + processing time)
+    await new Promise(resolve => setTimeout(resolve, 2500));
+    const resolved = await result;
+    expect(resolved).toBe(true);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  test('handles non-429/non-403 Telegram error gracefully', async () => {
+    const queue = new TelegramQueue(mockUsersCollection);
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({ ok: false, error_code: 500 }),
+    });
+
+    const result = queue.push('123', 'Test error');
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const resolved = await result;
+    expect(resolved).toBe(false);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
 });

@@ -83,23 +83,31 @@ async function addAlert(ownerId, chain, address, name, changePercent = 10) {
     throw new Error(`TOKEN_LIMIT_REACHED:${limit}`);
   }
 
-  await alertsCollection.insertOne({
-    ownerId,
-    source: 'dex',
-    target: {
-      chain: chain.toLowerCase(),
-      address: address, // preserve original case for Solana (base58 is case-sensitive)
-    },
-    condition: {
-      kind: 'percent_change',
-      changePercent: Number(changePercent),
-      baselinePrice: null,
-    },
-    repeat: 'always',
-    status: 'active',
-    name: trimmedName,
-    createdAt: new Date(),
-  });
+  try {
+    await alertsCollection.insertOne({
+      ownerId,
+      source: 'dex',
+      target: {
+        chain: chain.toLowerCase(),
+        address: address, // preserve original case for Solana (base58 is case-sensitive)
+      },
+      condition: {
+        kind: 'percent_change',
+        changePercent: Number(changePercent),
+        baselinePrice: null,
+      },
+      repeat: 'always',
+      status: 'active',
+      name: trimmedName,
+      createdAt: new Date(),
+    });
+  } catch (err) {
+    // MongoDB duplicate key error (code 11000) — unique index on ownerId+target.chain+target.address
+    if (err && err.code === 11000) {
+      throw new Error('DUPLICATE_ALERT');
+    }
+    throw err;
+  }
 }
 
 /**

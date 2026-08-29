@@ -101,29 +101,27 @@ describe('sessionCommands.js', () => {
       const sessionCommands = require('../handlers/sessionCommands');
       const now = Date.now();
       
-      // Access the internal commandTimestamps Map via the module
-      // We need to call isRateLimited to populate it first
-      sessionCommands.isRateLimited('user1');
-      sessionCommands.isRateLimited('user1');
-      sessionCommands.isRateLimited('user2');
-      sessionCommands.isRateLimited('user3');
+      // Clear any existing timestamps from previous tests
+      sessionCommands.commandTimestamps.clear();
       
-      // Now manually set the timestamps to simulate old and recent
-      // We can't directly access commandTimestamps, so we'll test the behavior
-      // by checking that after cleanup, the rate limiting still works correctly
+      // Add 100 unique chatIds
+      for (let i = 0; i < 100; i++) {
+        sessionCommands.isRateLimited(`user${i}`);
+      }
       
-      // Mock Date.now to return a fixed time
+      // After adding 100 unique chatIds, commandTimestamps.size should be 100
+      expect(sessionCommands.commandTimestamps.size).toBe(100);
+      
+      // Mock Date.now to return a time 5 minutes in the future
       const originalNow = Date.now;
-      Date.now = jest.fn(() => now);
+      Date.now = jest.fn(() => now + 5 * 60 * 1000);
       
       sessionCommands.cleanupRateLimitTimestamps();
       
       Date.now = originalNow;
       
-      // After cleanup, the timestamps older than 1 minute should be gone
-      // Since we just added them, they should all still be there
-      // The test is more about verifying the function runs without error
-      expect(true).toBe(true);
+      // After cleanup with timestamps older than 1 minute, size should be 0
+      expect(sessionCommands.commandTimestamps.size).toBe(0);
     });
   });
 

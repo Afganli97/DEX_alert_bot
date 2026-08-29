@@ -37,7 +37,18 @@ describe('db.js', () => {
     expect(mockMongoClient.connect).toHaveBeenCalled();
     expect(mockMongoClient.db).toHaveBeenCalledWith('admin');
     expect(mockDb.collection).toHaveBeenCalledWith('alerts');
-    expect(mockAlertsCollection.createIndex).toHaveBeenCalledTimes(2);
+    expect(mockAlertsCollection.createIndex).toHaveBeenCalledWith(
+      { source: 1, status: 1 },
+      { unique: false }
+    );
+    expect(mockAlertsCollection.createIndex).toHaveBeenCalledWith(
+      { ownerId: 1 },
+      { unique: false }
+    );
+    expect(mockAlertsCollection.createIndex).toHaveBeenCalledWith(
+      { ownerId: 1, 'target.chain': 1, 'target.address': 1 },
+      { unique: true }
+    );
   });
 
   test('throws error when URI is missing', async () => {
