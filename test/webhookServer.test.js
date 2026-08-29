@@ -17,7 +17,7 @@ describe('webhookServer.js', () => {
   test('throws error when WEBHOOK_SECRET is not set', () => {
     delete process.env.WEBHOOK_SECRET;
     const { startWebhookServer } = require('../webhookServer');
-    expect(() => startWebhookServer()).toThrow('WEBHOOK_SECRET is required');
+    expect(() => startWebhookServer()).toThrow('WEBHOOK_SECRET is required. Set it in .env before starting the bot.');
   });
 
   test('closeWebhookServer resolves immediately when server not started', async () => {
