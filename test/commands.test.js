@@ -35,9 +35,6 @@ jest.mock('../handlers/sessionCommands', () => ({
   stopSessionCleanup: jest.fn(),
 }));
 
-// In beforeEach we will set getSession mock to return the session object
-
-
 jest.mock('../handlers/utilityCommands', () => ({
   initCollections: jest.fn(),
   handleStartHelp: jest.fn(),
@@ -185,16 +182,33 @@ describe('commands.js state routing', () => {
   let mockSendTelegram;
   let mockGetUserAlerts;
   let mockFetchTokenInfo;
+  let mockAlertsCollection;
+  let mockUsersCollection;
   let session;
 
   beforeEach(() => {
     mockSendTelegram = jest.fn();
     mockGetUserAlerts = jest.fn().mockResolvedValue([]);
     mockFetchTokenInfo = jest.fn().mockResolvedValue({ name: 'ETH', chain: 'ethereum', address: '0xabc' });
+    mockAlertsCollection = {
+      deleteMany: jest.fn().mockResolvedValue({}),
+      deleteOne: jest.fn().mockResolvedValue({}),
+      countDocuments: jest.fn().mockResolvedValue(0),
+      find: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) }),
+    };
+    mockUsersCollection = {
+      deleteOne: jest.fn().mockResolvedValue({}),
+      countDocuments: jest.fn().mockResolvedValue(0),
+      findOneAndUpdate: jest.fn().mockResolvedValue({ value: { _id: '123', status: 'active' } }),
+    };
     session = { state: null, chatId: '123' };
     
     // Override sessionCommands getSession mock for state handling
     sessionCommands.getSession.mockReturnValue(session);
+    
+    // Initialize collections in commands module
+    const { initCollections } = require('../handlers/commands');
+    initCollections(mockAlertsCollection, mockUsersCollection);
     
     // Override alertCommands and tokenCommands mocks
     const alertCommands = require('../handlers/alertCommands');
@@ -219,49 +233,49 @@ describe('commands.js state routing', () => {
     session.state = 'awaiting_remove_select';
     const msg = { chat: { id: '123' }, from: { id: '123' }, text: '5' };
     await handleMessage(msg);
-    expect(sessionCommands.handleRemoveSelect).toHaveBeenCalledWith('123', '5', expect.any(Function), expect.any(Function), expect.any(String), session);
+    expect(sessionCommands.handleRemoveSelect).toHaveBeenCalledWith('123', '5', expect.any(Function), expect.any(Function), expect.any(Function), session);
   });
 
   test('remove confirm state routes correctly', async () => {
     session.state = 'awaiting_remove_confirm';
     const msg = { chat: { id: '123' }, from: { id: '123' }, text: 'yes' };
     await handleMessage(msg);
-    expect(sessionCommands.handleRemoveConfirm).toHaveBeenCalledWith('123', 'yes', expect.any(Function), session);
+    expect(sessionCommands.handleRemoveConfirm).toHaveBeenCalledWith('123', 'yes', expect.any(Function), expect.any(Function), session);
   });
 
   test('change select state routes correctly', async () => {
     session.state = 'awaiting_change_select';
     const msg = { chat: { id: '123' }, from: { id: '123' }, text: '1' };
     await handleMessage(msg);
-    expect(sessionCommands.handleChangeSelect).toHaveBeenCalledWith('123', '1', expect.any(Function), expect.any(Function), expect.any(String), session);
+    expect(sessionCommands.handleChangeSelect).toHaveBeenCalledWith('123', '1', expect.any(Function), expect.any(Function), expect.any(Function), session);
   });
 
   test('change value state routes correctly', async () => {
     session.state = 'awaiting_change_value';
     const msg = { chat: { id: '123' }, from: { id: '123' }, text: '15' };
     await handleMessage(msg);
-    expect(sessionCommands.handleChangeValue).toHaveBeenCalledWith('123', '15', expect.any(Function), session);
+    expect(sessionCommands.handleChangeValue).toHaveBeenCalledWith('123', '15', expect.any(Function), expect.any(Function), session);
   });
 
   test('change all value state routes correctly', async () => {
     session.state = 'awaiting_change_all_value';
     const msg = { chat: { id: '123' }, from: { id: '123' }, text: '20' };
     await handleMessage(msg);
-    expect(sessionCommands.handleChangeAllValue).toHaveBeenCalledWith('123', '20', expect.any(Function), session);
+    expect(sessionCommands.handleChangeAllValue).toHaveBeenCalledWith('123', '20', expect.any(Function), expect.any(Function), session);
   });
 
   test('add address state routes correctly', async () => {
     session.state = 'awaiting_add_address';
     const msg = { chat: { id: '123' }, from: { id: '123' }, text: '0xabc' };
     await handleMessage(msg);
-    expect(sessionCommands.handleAddAddress).toHaveBeenCalledWith('123', '0xabc', expect.any(Function), expect.any(String), session);
+    expect(sessionCommands.handleAddAddress).toHaveBeenCalledWith('123', '0xabc', expect.any(Function), expect.any(Function), expect.any(Function), session);
   });
 
   test('add confirm state routes correctly', async () => {
     session.state = 'awaiting_add_confirm';
     const msg = { chat: { id: '123' }, from: { id: '123' }, text: 'yes' };
     await handleMessage(msg);
-    expect(sessionCommands.handleAddConfirm).toHaveBeenCalledWith('123', 'yes', expect.any(Function), session);
+    expect(sessionCommands.handleAddConfirm).toHaveBeenCalledWith('123', 'yes', expect.any(Function), expect.any(Function), session);
   });
 
   test('handles /broadcast command as admin', async () => {
@@ -311,13 +325,13 @@ describe('commands.js state routing', () => {
   test('handles /remove command', async () => {
     const msg = { chat: { id: '123' }, from: { username: 'test' }, text: '/remove' };
     await handleMessage(msg);
-    expect(sessionCommands.handleRemoveStart).toHaveBeenCalledWith('123', sendTelegram, expect.any(Function), expect.any(String), session);
+    expect(sessionCommands.handleRemoveStart).toHaveBeenCalledWith('123', sendTelegram, expect.any(Function), expect.any(Function), session);
   });
 
   test('handles /change command', async () => {
     const msg = { chat: { id: '123' }, from: { username: 'test' }, text: '/change' };
     await handleMessage(msg);
-    expect(sessionCommands.handleChangeStart).toHaveBeenCalledWith('123', sendTelegram, expect.any(Function), expect.any(String), session);
+    expect(sessionCommands.handleChangeStart).toHaveBeenCalledWith('123', sendTelegram, expect.any(Function), expect.any(Function), session);
   });
 
   test('handles /change_all command', async () => {
