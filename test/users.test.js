@@ -41,6 +41,22 @@ describe('users.js', () => {
       expect(result._id).toBe('123');
       expect(result.status).toBe('active');
       expect(result.subscription).toBe('basic');
+      // Verify update operators
+      expect(mockCollection.findOneAndUpdate).toHaveBeenCalledWith(
+        { _id: '123' },
+        expect.objectContaining({
+          $setOnInsert: expect.objectContaining({
+            _id: '123',
+            username: 'testuser',
+            createdAt: expect.any(Date),
+            status: 'active',
+            subscription: 'basic',
+          }),
+          $currentDate: expect.objectContaining({ lastActivityAt: true }),
+          $set: expect.objectContaining({ username: 'testuser' }),
+        }),
+        expect.any(Object)
+      );
     });
 
     test('throws on invalid chatId', async () => {
@@ -69,6 +85,7 @@ describe('users.js', () => {
         { _id: '123' },
         expect.objectContaining({
           $setOnInsert: expect.objectContaining({ username: null }),
+          $set: expect.objectContaining({ username: null }),
         }),
         expect.any(Object)
       );
